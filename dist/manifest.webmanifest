@@ -1,0 +1,12 @@
+{
+  "name": "Skill Intelligence",
+  "short_name": "Skill Intel",
+  "description": "Observatoire des métiers et compétences",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#071711",
+  "theme_color": "#081a14",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
