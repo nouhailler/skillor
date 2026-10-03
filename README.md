@@ -28,7 +28,9 @@ ajoutez `FRANCE_TRAVAIL_CLIENT_ID` et `FRANCE_TRAVAIL_CLIENT_SECRET` dans `.env`
 ```bash
 docker compose exec api python -m app.cli sync esco --query data --limit 50
 docker compose exec api python -m app.cli sync eurostat
-docker compose exec api python -m app.cli sync france_travail
+docker compose exec api python -m app.cli sync-rome-esco
+docker compose exec api python -m app.cli sync france_travail --dataset market --territory FR
+docker compose exec api python -m app.cli sync france_travail --dataset offers --query python --territory 75 --limit 150
 ```
 
 Les imports sont enregistrés dans `import_jobs` et les réponses sources sont
@@ -39,6 +41,16 @@ synonymes multilingues, leur groupe ISCO, puis construit les relations vers les
 compétences essentielles et optionnelles. Les fiches de compétences liées sont
 récupérées par lots. `--max-relation-skills` permet de borner un import de test ;
 la valeur par défaut est configurable avec `ESCO_MAX_RELATION_SKILLS`.
+
+L'import France Travail résout les codes et libellés ROME vers les métiers ESCO
+déjà présents en base. `sync-rome-esco` charge le tableau officiel EURES France
+ROME–ESCO et conserve la relation de mapping ainsi que son niveau de confiance.
+Les indicateurs de marché (offres, demandeurs, embauches, difficultés de
+recrutement) et les offres détaillées sont ensuite rattachés aux fiches métiers,
+avec leur territoire et leur secteur. L'import des offres agrège également les
+compétences demandées et les salaires structurés lorsqu'ils sont fournis par la
+source. Les rapprochements non résolus sont conservés comme tels dans les
+métadonnées, sans attribution métier hasardeuse.
 
 ## Tests
 
@@ -56,7 +68,9 @@ docker compose run --rm api pytest
 - `GET /api/v1/skills/{id}`
 - `GET /api/v1/trends/skills`
 - `GET /api/v1/sources`
+- `GET /api/v1/sources/france_travail/coverage`
 - `POST /api/v1/imports/{source}` (clé d'administration)
+- `POST /api/v1/imports/france_travail/crosswalk` (clé d'administration)
 
 Les valeurs calculées exposent toujours `is_official: false`, leur version de
 méthode et leurs composantes.

@@ -5,6 +5,7 @@ from app import models, schemas
 from app.config import settings
 from app.db import get_db
 from app.services.ingestion import run_import
+from app.services.occupation_mapping import sync_rome_esco_crosswalk
 
 router = APIRouter(prefix="/api/v1")
 
@@ -38,10 +39,10 @@ def occupations(q: str | None=None, sector: str | None=None, offset: int=Query(0
 
 @router.get("/occupations/{occupation_id}")
 def occupation_detail(occupation_id: str, db: Session=Depends(get_db)):
-    obj=db.scalar(select(models.Occupation).options(selectinload(models.Occupation.skills).selectinload(models.OccupationSkill.skill)).where(models.Occupation.id==occupation_id))
+    obj=db.scalar(select(models.Occupation).options(selectinload(models.Occupation.skills).selectinload(models.OccupationSkill.skill),selectinload(models.Occupation.external_mappings)).where(models.Occupation.id==occupation_id))
     if not obj: raise HTTPException(404,"Métier introuvable")
     observations=db.scalars(select(models.Observation).where(models.Observation.occupation_id==obj.id).order_by(models.Observation.period)).all()
-    return {"id":obj.id,"canonical_name":obj.canonical_name,"description":obj.description,"sector":obj.sector,"esco_uri":obj.esco_uri,"isco_code":obj.isco_code,"aliases":obj.aliases,"multilingual_labels":obj.multilingual_labels,"multilingual_descriptions":obj.multilingual_descriptions,"skills":[{"id":rel.skill.id,"name":rel.skill.canonical_name,"relationship":rel.relationship_type,"weight":rel.weight,"skill_type":rel.skill.skill_type,"confidence":rel.confidence_score} for rel in obj.skills],"market":[{"metric":o.metric,"value":o.value,"unit":o.unit,"period":o.period,"is_official":o.metadata_json.get("is_official",True)} for o in observations]}
+    return {"id":obj.id,"canonical_name":obj.canonical_name,"description":obj.description,"sector":obj.sector,"esco_uri":obj.esco_uri,"isco_code":obj.isco_code,"aliases":obj.aliases,"multilingual_labels":obj.multilingual_labels,"multilingual_descriptions":obj.multilingual_descriptions,"external_mappings":[{"system":m.source_system,"code":m.external_code,"label":m.external_label,"relation":m.mapping_relation,"method":m.mapping_method,"confidence":m.confidence_score} for m in obj.external_mappings],"skills":[{"id":rel.skill.id,"name":rel.skill.canonical_name,"relationship":rel.relationship_type,"weight":rel.weight,"skill_type":rel.skill.skill_type,"confidence":rel.confidence_score} for rel in obj.skills],"market":[{"metric":o.metric,"value":o.value,"unit":o.unit,"period":o.period,"geography_code":o.geography_code,"geography_name":o.geography_name,"dimensions":o.metadata_json.get("dimensions",{}),"resolution":o.metadata_json.get("occupation_resolution"),"is_official":o.metadata_json.get("is_official",True)} for o in observations]}
 
 @router.get("/skills", response_model=list[schemas.SkillOut])
 def skills(q: str | None=None, skill_type: str | None=None, offset: int=Query(0,ge=0), limit: int=Query(30,ge=1,le=100), db: Session=Depends(get_db)):
@@ -67,9 +68,24 @@ def sources(db: Session=Depends(get_db)):
     rows=db.scalars(select(models.Source).order_by(models.Source.name)).all()
     return [{"id":x.id,"slug":x.slug,"name":x.name,"type":x.source_type,"enabled":x.enabled,"requires_credentials":x.requires_credentials,"last_success_at":x.last_success_at} for x in rows]
 
+@router.get("/sources/france_travail/coverage")
+def france_travail_coverage(db: Session=Depends(get_db)):
+    source=db.scalar(select(models.Source).where(models.Source.slug=="france_travail"))
+    if not source: return {"total":0,"resolved":0,"unresolved":0,"coverage_percent":0.0,"metrics":[]}
+    rows=db.execute(select(models.Observation.metric,func.count(models.Observation.id),func.count(models.Observation.occupation_id)).where(models.Observation.source_id==source.id).group_by(models.Observation.metric).order_by(models.Observation.metric)).all()
+    metrics=[{"metric":metric,"total":total,"resolved":resolved,"coverage_percent":round(100*resolved/total,1) if total else 0.0} for metric,total,resolved in rows]
+    total=sum(row["total"] for row in metrics); resolved=sum(row["resolved"] for row in metrics)
+    return {"total":total,"resolved":resolved,"unresolved":total-resolved,"coverage_percent":round(100*resolved/total,1) if total else 0.0,"metrics":metrics}
+
 @router.post("/imports/{source}", response_model=schemas.ImportOut)
-async def import_source(source: str, query: str="data", limit: int=50, max_relation_skills: int | None=None, x_admin_key: str | None=Header(None), db: Session=Depends(get_db)):
+async def import_source(source: str, query: str="data", limit: int=50, max_relation_skills: int | None=None, dataset: str="market", territory: str="FR", rome_code: str | None=None, endpoint: str="indicateurs", x_admin_key: str | None=Header(None), db: Session=Depends(get_db)):
     if not settings.admin_api_key or x_admin_key != settings.admin_api_key: raise HTTPException(403,"Clé d'administration requise")
-    job=await run_import(db,source,query=query,limit=limit,max_relation_skills=max_relation_skills)
+    job=await run_import(db,source,query=query,limit=limit,max_relation_skills=max_relation_skills,dataset=dataset,territory=territory,rome_code=rome_code,endpoint=endpoint)
     if job.status=="failed": raise HTTPException(502,{"job_id":job.id,"error":job.error})
     return job
+
+@router.post("/imports/france_travail/crosswalk")
+async def import_france_travail_crosswalk(x_admin_key: str | None=Header(None), db: Session=Depends(get_db)):
+    if not settings.admin_api_key or x_admin_key != settings.admin_api_key: raise HTTPException(403,"Clé d'administration requise")
+    try: return await sync_rome_esco_crosswalk(db)
+    except Exception as exc: raise HTTPException(502,str(exc)) from exc

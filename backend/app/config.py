@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     france_travail_client_id: str = ""
     france_travail_client_secret: str = ""
     france_travail_scope: str = "api_marche-travailv1"
+    france_travail_offers_url: str = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
+    france_travail_offers_scope: str = "api_offresdemploiv2 o2dsoffre"
+    france_travail_crosswalk_url: str = "https://esco.ec.europa.eu/system/files/2024-10/EURESmapping_occs_FR_v1.1.csv"
 
     @property
     def cors_origins(self) -> list[str]:

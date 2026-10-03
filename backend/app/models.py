@@ -59,6 +59,22 @@ class Occupation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     skills: Mapped[list["OccupationSkill"]] = relationship(back_populates="occupation", cascade="all, delete-orphan")
+    external_mappings: Mapped[list["ExternalOccupationMapping"]] = relationship(back_populates="occupation", cascade="all, delete-orphan")
+
+class ExternalOccupationMapping(Base):
+    __tablename__ = "external_occupation_mappings"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    occupation_id: Mapped[str] = mapped_column(ForeignKey("occupations.id", ondelete="CASCADE"), index=True)
+    source_system: Mapped[str] = mapped_column(String(80), index=True)
+    external_code: Mapped[str] = mapped_column(String(120), index=True)
+    external_label: Mapped[str | None] = mapped_column(String(500), index=True)
+    mapping_relation: Mapped[str] = mapped_column(String(80), default="exactMatch")
+    mapping_method: Mapped[str] = mapped_column(String(80), default="official_crosswalk")
+    confidence_score: Mapped[float] = mapped_column(Float, default=1.0)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    occupation: Mapped[Occupation] = relationship(back_populates="external_mappings")
+    __table_args__ = (UniqueConstraint("occupation_id", "source_system", "external_code"),)
 
 class Skill(Base):
     __tablename__ = "skills"
@@ -99,6 +115,7 @@ class Observation(Base):
     geography_code: Mapped[str] = mapped_column(String(30), default="FR", index=True)
     geography_name: Mapped[str] = mapped_column(String(150), default="France")
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    natural_key: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     __table_args__ = (Index("ix_observation_lookup", "metric", "period", "geography_code"),)
 

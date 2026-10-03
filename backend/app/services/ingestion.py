@@ -1,9 +1,12 @@
+import hashlib
+import json
 from datetime import date, datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app import models
 from app.config import settings
 from app.connectors import EscoConnector, EurostatConnector, FranceTravailConnector
+from app.services.occupation_mapping import resolve_occupation, resolve_skill
 
 CONNECTORS = {"esco": EscoConnector, "eurostat": EurostatConnector, "france_travail": FranceTravailConnector}
 
@@ -24,6 +27,17 @@ def _source(db: Session, slug: str) -> models.Source:
     names = {"esco":"ESCO","eurostat":"Eurostat","france_travail":"France Travail"}
     source = models.Source(slug=slug, name=names[slug], source_type="taxonomy" if slug=="esco" else "observed", requires_credentials=slug=="france_travail")
     db.add(source); db.flush(); return source
+
+def _observation_key(slug: str, dataset: str, row: dict) -> str:
+    identity = {
+        "source": slug, "dataset": dataset, "esco_uri": row.get("esco_uri"), "isco_code": row.get("isco_code"),
+        "metric": row["metric"], "unit": row["unit"], "period": _period(row.get("period")).isoformat(),
+        "geography_code": row.get("geography_code", "FR"), "dimensions": row.get("dimensions", {}),
+        "external_occupation_code": row.get("occupation_external_code"),
+        "external_occupation_label": row.get("occupation_label"),
+        "external_skill_code": row.get("skill_external_code"), "external_skill_label": row.get("skill_label"),
+    }
+    return hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
 
 async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
     if slug not in CONNECTORS: raise ValueError(f"Connecteur inconnu: {slug}")
@@ -82,7 +96,34 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
                 dataset = models.SourceDataset(source_id=source.id, external_id=dataset_code, name=payload.get("label", dataset_code), version=payload.get("updated"))
                 db.add(dataset); db.flush()
             for row in normalized:
-                db.add(models.Observation(source_id=source.id, dataset_id=dataset.id, metric=row["metric"], value=row["value"], unit=row["unit"], period=_period(row.get("period")), geography_code=row.get("geography_code","FR"), geography_name="France" if row.get("geography_code","FR")=="FR" else row.get("geography_code","FR"), metadata_json={"dimensions": row.get("dimensions", {}), "is_official": True}))
+                occupation_id = skill_id = None
+                resolution = None
+                if slug == "france_travail":
+                    resolution = resolve_occupation(db, row)
+                    occupation_id = resolution.occupation.id if resolution.occupation else None
+                    skill = resolve_skill(db, row.get("skill_label"))
+                    skill_id = skill.id if skill else None
+                    if resolution.occupation and row.get("sector_name") and not resolution.occupation.sector:
+                        resolution.occupation.sector = row["sector_name"]
+                natural_key = _observation_key(slug, dataset_code, row)
+                observation = db.scalar(select(models.Observation).where(models.Observation.natural_key == natural_key))
+                fields = {
+                    "occupation_id": occupation_id, "skill_id": skill_id, "source_id": source.id,
+                    "dataset_id": dataset.id, "metric": row["metric"], "value": row["value"], "unit": row["unit"],
+                    "period": _period(row.get("period")), "geography_code": row.get("geography_code", "FR"),
+                    "geography_name": row.get("geography_name") or ("France" if row.get("geography_code", "FR") == "FR" else row.get("geography_code", "FR")),
+                    "natural_key": natural_key,
+                    "metadata_json": {
+                        "dimensions": row.get("dimensions", {}), "is_official": True,
+                        "occupation_resolution": None if not resolution else {"method": resolution.method, "confidence": resolution.confidence},
+                        "external_occupation": {"scheme": row.get("occupation_external_scheme"), "code": row.get("occupation_external_code"), "label": row.get("occupation_label")},
+                        "external_skill": {"code": row.get("skill_external_code"), "label": row.get("skill_label")},
+                    },
+                }
+                if observation:
+                    for key, value in fields.items(): setattr(observation, key, value)
+                else:
+                    db.add(models.Observation(**fields))
                 stored += 1
         source.last_success_at = datetime.now(timezone.utc)
         job.records_stored = stored; job.status = "success"; job.finished_at = datetime.now(timezone.utc)

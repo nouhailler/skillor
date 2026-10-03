@@ -1,5 +1,7 @@
 from app.connectors.esco import EscoConnector
 from app.connectors.eurostat import EurostatConnector
+from app.connectors.france_travail import FranceTravailConnector
+from app.services.occupation_mapping import parse_rome_esco_crosswalk
 
 def test_esco_normalization_supports_hal():
     payload={"language":"fr","results":{"occupation":{"_embedded":{"results":[{"title":"Data scientist","uri":"http://data.europa.eu/esco/occupation/1"}]}},"skill":{"_embedded":{"results":[{"preferredLabel":{"fr":"Python"},"uri":"http://data.europa.eu/esco/skill/1"}]}}}}
@@ -28,3 +30,43 @@ def test_eurostat_json_stat_normalization():
     assert rows[0]["metric"] == "unemployment_rate"
     assert [x["value"] for x in rows] == [7.4,7.2]
     assert rows[1]["period"] == "2025"
+
+def test_france_travail_market_rows_keep_occupation_and_territory_context():
+    payload={"resultats":[{"indicateur":"Difficulté recrutement","valeur":"67,5","unite":"percent",
+        "periode":"2026-Q1","territoire":{"code":"75","libelle":"Paris"},
+        "metier":{"codeRome":"M1805","libelle":"Études et développement informatique"},
+        "secteur":{"code":"62","libelle":"Programmation informatique"}}]}
+    rows=FranceTravailConnector().normalize(payload)
+    assert rows[0]["metric"] == "recruitment_difficulty"
+    assert rows[0]["occupation_external_code"] == "M1805"
+    assert rows[0]["geography_name"] == "Paris"
+    assert rows[0]["dimensions"]["sector_code"] == "62"
+
+def test_france_travail_offers_are_aggregated_by_job_territory_sector_and_skill():
+    offer={"romeCode":"M1805","romeLibelle":"Études et développement informatique",
+        "appellationlibelle":"Développeur / Développeuse web","dateCreation":"2026-09-12T10:00:00Z",
+        "lieuTravail":{"commune":"75101","libelle":"Paris 1er"},"secteurActivite":"62",
+        "secteurActiviteLibelle":"Programmation informatique","competences":[{"code":"120025","libelle":"Python"}],
+        "salaire":{"minimum":35000,"maximum":45000,"unite":"EUR/year"}}
+    payload={"_skillor_kind":"offers","resultats":[offer,offer]}
+    rows=FranceTravailConnector().normalize(payload)
+    by_metric={row["metric"]:row for row in rows}
+    assert by_metric["job_offers"]["value"] == 2
+    assert by_metric["skill_offer_mentions"]["value"] == 2
+    assert by_metric["salary_min"]["value"] == 35000
+    assert by_metric["salary_max"]["value"] == 45000
+
+def test_france_travail_parses_salary_label_without_including_month_count():
+    payload={"_skillor_kind":"offers","resultats":[{"romeCode":"M1805","dateCreation":"2026-09-12",
+        "salaire":{"libelle":"Mensuel de 2 500,50 Euros à 3 000 Euros sur 12 mois"}}]}
+    by_metric={row["metric"]:row for row in FranceTravailConnector().normalize(payload)}
+    assert by_metric["salary_min"]["value"] == 2500.5
+    assert by_metric["salary_max"]["value"] == 3000
+    assert by_metric["salary_min"]["unit"] == "EUR/month"
+
+def test_official_rome_esco_crosswalk_parser_skips_metadata_header():
+    csv_text="""Mapping project name,ESCO - ROME\nClassification 1 Version,1.1\n\nclassification 1 ID,classification 1 prefered label,classification 2 ID,classification 2 prefered label,mapping relation\nhttp://data.europa.eu/esco/occupation/abc,développeur,12345,Développeur / Développeuse web,skos:exactMatch\n"""
+    rows=parse_rome_esco_crosswalk(csv_text)
+    assert rows == [{"esco_uri":"http://data.europa.eu/esco/occupation/abc","esco_label":"développeur",
+        "external_code":"12345","external_label":"Développeur / Développeuse web",
+        "mapping_relation":"skos:exactMatch","confidence_score":1.0}]
