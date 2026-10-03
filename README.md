@@ -19,9 +19,13 @@ docker compose up --build
 L'API est disponible sur `http://localhost:8000`, sa documentation sur
 `http://localhost:8000/docs` et le frontend sur `http://localhost:8080`.
 
-Le jeu de démonstration est chargé au premier démarrage. Les connecteurs ESCO et
-Eurostat ne demandent pas de secret. France Travail nécessite un client OAuth ;
-ajoutez `FRANCE_TRAVAIL_CLIENT_ID` et `FRANCE_TRAVAIL_CLIENT_SECRET` dans `.env`.
+La base démarre vide : aucun chiffre de démonstration n'est injecté
+automatiquement. Les connecteurs ESCO et Eurostat ne demandent pas de secret.
+France Travail nécessite un client OAuth ; ajoutez `FRANCE_TRAVAIL_CLIENT_ID` et
+`FRANCE_TRAVAIL_CLIENT_SECRET` dans `.env`.
+
+Pour les tests visuels locaux uniquement, un jeu synthétique reste disponible
+sur demande avec `docker compose exec api python -m app.cli seed`.
 
 ## Synchronisation
 
