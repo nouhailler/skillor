@@ -6,6 +6,7 @@ from app import models, schemas
 from app.config import settings
 from app.db import get_db
 from app.eurostat_catalog import eurostat_catalog
+from app.services.dashboard import build_dashboard
 from app.services.ingestion import run_eurostat_catalog_import, run_import
 from app.services.occupation_mapping import sync_rome_esco_crosswalk
 
@@ -17,13 +18,7 @@ def health(db: Session = Depends(get_db)):
 
 @router.get("/dashboard")
 def dashboard(db: Session = Depends(get_db)):
-    occupations = db.scalar(select(func.count(models.Occupation.id))) or 0
-    skills = db.scalar(select(func.count(models.Skill.id))) or 0
-    observed = db.scalar(select(func.count(models.Observation.id))) or 0
-    latest = db.scalar(select(func.max(models.Observation.imported_at)))
-    top = db.execute(select(models.TrendScore, models.Skill.canonical_name).join(models.Skill, models.Skill.id==models.TrendScore.entity_id).where(models.TrendScore.entity_type=="skill").order_by(models.TrendScore.score.desc()).limit(5)).all()
-    geographies = db.scalar(select(func.count(func.distinct(models.Observation.geography_code)))) or 0
-    return {"kpis":{"occupations":occupations,"skills":skills,"observations":observed,"geographies":geographies},"latest_update":latest,"top_skill_trends":[{"id":trend.entity_id,"name":name,"score":trend.score,"growth":trend.growth,"is_official":False,"method_version":trend.method_version} for trend,name in top],"provenance":{"sources":["ESCO","France Travail","Eurostat"],"mode":"database"}}
+    return build_dashboard(db)
 
 @router.get("/search")
 def search(q: str = Query(min_length=2, max_length=100), limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):

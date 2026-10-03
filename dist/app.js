@@ -6,6 +6,11 @@
   const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
   const formatNumber = value => value == null ? '—' : new Intl.NumberFormat('fr-FR',{maximumFractionDigits:1}).format(value);
   const formatDate = value => value ? new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium'}).format(new Date(value)) : 'Jamais importé';
+  const formatMetric = (value,unit='') => {
+    if (value == null) return '—';
+    const suffix = {'EUR/year':' €/an','EUR/month':' €/mois','EUR/hour':' €/h','percent':' %','score_0_100':' / 100','offer':' offres'}[unit] ?? (unit ? ` ${unit}` : '');
+    return `${formatNumber(value)}${suffix}`;
+  };
   const metricValue = (occupation, metric) => occupation.market?.[metric]?.value ?? null;
   const empty = message => `<div class="state">${escapeHtml(message)}</div>`;
   const errorState = message => `<div class="state error">${escapeHtml(message)}</div>`;
@@ -22,7 +27,8 @@
       <div class="page-head"><div><div class="eyebrow">Observatoire connecté</div><h1>Le marché des compétences, en clair.</h1><p class="subtitle">Données issues de PostgreSQL via FastAPI.</p></div><span class="demo-pill" id="dataStatus"><i></i>Chargement des données…</span></div>
       <div class="kpis" id="dashboardKpis">${empty('Chargement des indicateurs…')}</div>
       <div class="grid-main"><article class="card"><div class="card-head"><div><h2>Dynamique du marché</h2><div class="subtitle" id="seriesSubtitle">Série observée</div></div></div><div class="chart" id="marketChart">${empty('Chargement de la série…')}</div><div class="provenance"><span id="seriesProvenance">Source en cours de lecture</span><span class="quality">● Données observées</span></div></article><article class="card"><div class="card-head"><div><h2>Compétences en accélération</h2><div class="subtitle">TrendScore interne · 0–100</div></div><button class="link-btn" data-open-view="trends">Explorer</button></div><div class="rank-list" id="dashboardTrends">${empty('Chargement…')}</div></article></div>
-      <div class="lower-grid"><article class="card"><div class="card-head"><div><h2>Métiers les plus demandés</h2><div class="subtitle">Somme des observations France Travail disponibles</div></div></div><div class="bars" id="topOccupations">${empty('Chargement…')}</div></article><article class="card"><div class="card-head"><div><h2>Lecture rapide</h2><div class="subtitle">Synthèse calculée sur les données disponibles</div></div></div><div id="dashboardSummary">${empty('Chargement…')}</div></article></div>`;
+      <div class="lower-grid"><article class="card"><div class="card-head"><div><h2>Métiers les plus demandés</h2><div class="subtitle">Offres rattachées sur les 12 dernières périodes mensuelles</div></div></div><div class="bars" id="topOccupations">${empty('Chargement…')}</div></article><article class="card"><div class="card-head"><div><h2>Métiers en hausse</h2><div class="subtitle">Évolution entre la première et la dernière période observée</div></div></div><div class="rank-list" id="occupationTrends">${empty('Chargement…')}</div></article></div>
+      <div class="lower-grid"><article class="card"><div class="card-head"><div><h2>Salaires et tension</h2><div class="subtitle">Unités conservées, aucune conversion implicite</div></div></div><div id="marketSnapshot">${empty('Chargement…')}</div></article><article class="card"><div class="card-head"><div><h2>Fraîcheur des données</h2><div class="subtitle">Dernière synchronisation enregistrée par source</div></div></div><div id="dashboardUpdates">${empty('Chargement…')}</div></article></div>`;
     $('#occupations').innerHTML = `<div class="page-head"><div><div class="eyebrow">Référentiel ESCO</div><h1>Explorer les métiers</h1><p class="subtitle">Fiches, compétences et observations de marché réellement stockées.</p></div><span class="demo-pill" id="occupationCount"><i></i>Chargement…</span></div><div class="section-tools"><input id="occupationSearch" placeholder="Rechercher un métier…"/><div class="filters"><select class="filter" id="sectorFilter"><option value="">Tous les secteurs</option></select></div></div><div class="catalog-grid" id="occupationCards">${empty('Chargement des métiers…')}</div>`;
     $('#skills').innerHTML = `<div class="page-head"><div><div class="eyebrow">Référentiel de compétences</div><h1>Cartographie des compétences</h1><p class="subtitle">Relations ESCO et tendances calculées en base.</p></div><span class="demo-pill" id="skillCount"><i></i>Chargement…</span></div><div class="section-tools"><input id="skillSearch" placeholder="Rechercher une compétence…"/><div class="filters"><select class="filter" id="skillTypeFilter"><option value="">Tous les types</option><option value="skill">Compétence</option><option value="knowledge">Connaissance</option></select></div></div><div class="catalog-grid" id="skillCards">${empty('Chargement des compétences…')}</div>`;
     $('#trends').innerHTML = `<div class="page-head"><div><div class="eyebrow">Indicateurs internes</div><h1>Compétences de demain</h1><p class="subtitle">Scores versionnés calculés à partir des observations stockées.</p></div><button class="secondary" id="quadExport">Exporter CSV</button></div><article class="card"><div class="card-head"><div><h2>Matrice score × progression</h2><div class="subtitle">Aucune projection fictive n'est affichée.</div></div></div><div class="quadrant" id="trendQuadrant">${empty('Chargement des tendances…')}</div><div class="provenance"><span>Calcul interne, distinct des données officielles</span><span class="quality">● Méthode versionnée</span></div></article>`;
@@ -36,21 +42,28 @@
 
   function renderDashboard() {
     const data = state.dashboard;
+    const salary = data.salary?.primary ?? null;
+    const tension = data.tension;
     const cards = [
-      ['Observations stockées',data.kpis.observations,'Toutes sources'],
       ['Métiers suivis',data.kpis.occupations,'Référentiel en base'],
       ['Compétences',data.kpis.skills,'Référentiel en base'],
-      ['Territoires',data.kpis.geographies,'Codes géographiques observés'],
+      ['Offres · 12 mois',data.kpis.offers_12m,data.kpis.offers_latest_period?`jusqu'au ${formatDate(data.kpis.offers_latest_period)}`:'Aucune offre importée'],
+      ['Pays',data.kpis.countries,'Calculés depuis les géographies'],
+      ['Régions',data.kpis.regions,'Niveaux régionaux observés'],
+      ['Salaire central',salary?formatMetric(salary.value,salary.unit):null,salary?`${formatNumber(salary.sample_size)} valeurs observées`:'Aucun salaire importé'],
+      ['Tension',tension?formatMetric(tension.value,tension.unit):null,tension?`${tension.is_official?'Donnée source':'Calcul interne'} · ${formatNumber(tension.sample_size)} observations`:'Aucun indicateur importé'],
+      ['Observations',data.kpis.observations,'Toutes sources'],
     ];
-    $('#dashboardKpis').innerHTML = cards.map((card,index) => `<article class="card kpi" style="--accent:${['var(--lime)','var(--mint)','var(--coral)','var(--amber)'][index]}"><div class="kpi-top"><span>${card[0]}</span></div><div class="kpi-value">${formatNumber(card[1])}</div><span class="delta">${card[2]}</span></article>`).join('');
+    $('#dashboardKpis').innerHTML = cards.map((card,index) => `<article class="card kpi" style="--accent:${['var(--lime)','var(--mint)','var(--coral)','var(--amber)'][index%4]}"><div class="kpi-top"><span>${card[0]}</span></div><div class="kpi-value">${typeof card[1]==='string'?escapeHtml(card[1]):formatNumber(card[1])}</div><span class="delta">${escapeHtml(card[2])}</span></article>`).join('');
     $('#dataStatus').innerHTML = '<i style="background:var(--mint)"></i>Base connectée';
     $('#dashboardTrends').innerHTML = data.top_skill_trends.length ? data.top_skill_trends.map((item,index) => `<div class="rank"><span class="rank-num">${String(index+1).padStart(2,'0')}</span><div class="rank-name"><b>${escapeHtml(item.name)}</b><small>Calcul interne · v${escapeHtml(item.method_version)}</small></div><div class="rank-score">${formatNumber(item.score)}<small>${item.growth >= 0 ? '+' : ''}${formatNumber(item.growth)} %</small></div></div>`).join('') : empty('Aucun TrendScore calculé.');
     renderSeries();
-    const ranked = [...state.occupations].filter(item => metricValue(item,'job_offers') != null).sort((a,b) => metricValue(b,'job_offers')-metricValue(a,'job_offers')).slice(0,5);
-    const maximum = Math.max(...ranked.map(item => metricValue(item,'job_offers')),1);
-    $('#topOccupations').innerHTML = ranked.length ? ranked.map(item => `<div class="bar-row"><span>${escapeHtml(item.canonical_name)}</span><div class="bar-track"><div class="bar-fill" style="--w:${100*metricValue(item,'job_offers')/maximum}%"></div></div><b>${formatNumber(metricValue(item,'job_offers'))}</b></div>`).join('') : empty('Aucune offre France Travail rattachée à un métier.');
-    const topSkill = data.top_skill_trends[0]; const topOccupation = ranked[0];
-    $('#dashboardSummary').innerHTML = `<div class="notice">Cette synthèse ne complète jamais les données manquantes par des valeurs fictives.</div><div class="fact"><span>Signal de compétence le plus fort</span><b>${topSkill ? escapeHtml(topSkill.name) : 'Non calculé'}</b></div><div class="fact"><span>Métier avec le plus d'offres liées</span><b>${topOccupation ? escapeHtml(topOccupation.canonical_name) : 'Non disponible'}</b></div><div class="fact"><span>Dernière observation</span><b>${formatDate(data.latest_update)}</b></div>`;
+    const ranked = data.top_occupations_by_offers;
+    const maximum = Math.max(...ranked.map(item => item.offers),1);
+    $('#topOccupations').innerHTML = ranked.length ? ranked.map(item => `<div class="bar-row"><span>${escapeHtml(item.name)}</span><div class="bar-track"><div class="bar-fill" style="--w:${100*item.offers/maximum}%"></div></div><b>${formatNumber(item.offers)}</b></div>`).join('') : empty('Aucune offre France Travail rattachée à un métier.');
+    $('#occupationTrends').innerHTML = data.top_occupation_trends.length ? data.top_occupation_trends.map((item,index)=>`<div class="rank"><span class="rank-num">${String(index+1).padStart(2,'0')}</span><div class="rank-name"><b>${escapeHtml(item.name)}</b><small>${formatDate(item.period_to||item.period)} · ${item.is_official?'observé':'calcul interne'}</small></div><div class="rank-score">${item.score == null ? formatNumber(item.volume) : formatNumber(item.score)}<small>${item.growth>=0?'+':''}${formatNumber(item.growth)} %</small></div></div>`).join('') : empty('Deux périodes d’offres sont nécessaires pour calculer une hausse.');
+    $('#marketSnapshot').innerHTML = `<div class="fact"><span>Salaire central</span><b>${salary?formatMetric(salary.value,salary.unit):'Non disponible'}</b></div><div class="fact"><span>Couverture salaire</span><b>${salary?`${formatNumber(salary.sample_size)} valeurs · ${formatNumber(salary.occupation_count)} métiers`:'—'}</b></div><div class="fact"><span>Méthode salaire</span><b>${salary?escapeHtml(salary.method):'—'}</b></div><div class="fact"><span>Tension moyenne</span><b>${tension?formatMetric(tension.value,tension.unit):'Non disponible'}</b></div><div class="fact"><span>Statut tension</span><b>${tension?(tension.is_official?'Donnée source':'Calcul interne'):'—'}</b></div>`;
+    $('#dashboardUpdates').innerHTML = data.source_updates.length ? data.source_updates.map(source=>`<div class="fact"><span>${escapeHtml(source.name)}</span><b>${formatDate(source.last_success_at)}</b></div>`).join('')+`<div class="fact"><span>Dernière observation chargée</span><b>${formatDate(data.latest_update)}</b></div>` : empty('Aucune source configurée.');
   }
 
   function renderSeries() {

@@ -71,6 +71,14 @@ les séries territoriales et la provenance depuis FastAPI. Une API indisponible
 ou une base vide produit un état d'erreur ou un état vide explicite, jamais des
 chiffres simulés. Les exports CSV sont construits à partir des réponses API.
 
+Le dashboard agrège les observations réellement importées : offres sur les
+douze dernières périodes mensuelles, pays et régions déduits des niveaux
+géographiques, salaires conservés dans leur unité source, tension observée ou
+calculée clairement identifiée, métiers et compétences en hausse, ainsi que la
+fraîcheur de chaque source. Les bornes salariales peuvent produire un point
+central interne, signalé par la méthode `range_midpoint` ; aucune conversion
+entre salaire horaire, mensuel et annuel n'est effectuée.
+
 ## Tests
 
 ```bash

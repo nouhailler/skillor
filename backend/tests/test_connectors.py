@@ -63,6 +63,7 @@ def test_france_travail_market_rows_keep_occupation_and_territory_context():
     assert rows[0]["metric"] == "recruitment_difficulty"
     assert rows[0]["occupation_external_code"] == "M1805"
     assert rows[0]["geography_name"] == "Paris"
+    assert rows[0]["geography_level"] == "department"
     assert rows[0]["dimensions"]["sector_code"] == "62"
 
 def test_france_travail_offers_are_aggregated_by_job_territory_sector_and_skill():
@@ -75,6 +76,7 @@ def test_france_travail_offers_are_aggregated_by_job_territory_sector_and_skill(
     rows=FranceTravailConnector().normalize(payload)
     by_metric={row["metric"]:row for row in rows}
     assert by_metric["job_offers"]["value"] == 2
+    assert by_metric["job_offers"]["geography_level"] == "commune"
     assert by_metric["skill_offer_mentions"]["value"] == 2
     assert by_metric["salary_min"]["value"] == 35000
     assert by_metric["salary_max"]["value"] == 45000

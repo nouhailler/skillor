@@ -77,6 +77,10 @@ class FranceTravailConnector(BaseConnector):
                                 "lieuTravail.commune", "lieuTravail.codePostal", default=flat_territory or "FR")
         geography_name = _first(row, "geography_name", "libelleTerritoire", "territoire.libelle",
                                 "lieuTravail.libelle", default="France" if geography_code == "FR" else str(geography_code))
+        geography_code = str(geography_code)
+        geography_level = _first(row, "geography_level", "niveauTerritoire", "territoire.niveau")
+        if not geography_level:
+            geography_level = "country" if geography_code == "FR" else "commune" if geography_code.isdigit() and len(geography_code) == 5 else "department"
         return {
             "occupation_external_scheme": "rome_v4",
             "occupation_external_code": _first(row, "romeCode", "codeRome", "code_rome", "metier.codeRome", "metier.code"),
@@ -84,7 +88,8 @@ class FranceTravailConnector(BaseConnector):
             "occupation_appellation_label": _first(row, "appellationlibelle", "appellation.libelle"),
             "esco_uri": _first(row, "escoUri", "esco_uri", "metier.escoUri"),
             "isco_code": _first(row, "iscoCode", "isco_code", "metier.iscoCode"),
-            "geography_code": str(geography_code), "geography_name": str(geography_name),
+            "geography_code": geography_code, "geography_name": str(geography_name),
+            "geography_level": str(geography_level).lower(),
             "sector_code": _first(row, "secteurActivite", "secteur.code", "naf"),
             "sector_name": _first(row, "secteurActiviteLibelle", "secteur.libelle"),
         }
