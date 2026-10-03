@@ -41,7 +41,7 @@ def occupation_detail(occupation_id: str, db: Session=Depends(get_db)):
     obj=db.scalar(select(models.Occupation).options(selectinload(models.Occupation.skills).selectinload(models.OccupationSkill.skill)).where(models.Occupation.id==occupation_id))
     if not obj: raise HTTPException(404,"Métier introuvable")
     observations=db.scalars(select(models.Observation).where(models.Observation.occupation_id==obj.id).order_by(models.Observation.period)).all()
-    return {"id":obj.id,"canonical_name":obj.canonical_name,"description":obj.description,"sector":obj.sector,"esco_uri":obj.esco_uri,"skills":[{"id":rel.skill.id,"name":rel.skill.canonical_name,"relationship":rel.relationship_type,"confidence":rel.confidence_score} for rel in obj.skills],"market":[{"metric":o.metric,"value":o.value,"unit":o.unit,"period":o.period,"is_official":o.metadata_json.get("is_official",True)} for o in observations]}
+    return {"id":obj.id,"canonical_name":obj.canonical_name,"description":obj.description,"sector":obj.sector,"esco_uri":obj.esco_uri,"isco_code":obj.isco_code,"aliases":obj.aliases,"multilingual_labels":obj.multilingual_labels,"multilingual_descriptions":obj.multilingual_descriptions,"skills":[{"id":rel.skill.id,"name":rel.skill.canonical_name,"relationship":rel.relationship_type,"weight":rel.weight,"skill_type":rel.skill.skill_type,"confidence":rel.confidence_score} for rel in obj.skills],"market":[{"metric":o.metric,"value":o.value,"unit":o.unit,"period":o.period,"is_official":o.metadata_json.get("is_official",True)} for o in observations]}
 
 @router.get("/skills", response_model=list[schemas.SkillOut])
 def skills(q: str | None=None, skill_type: str | None=None, offset: int=Query(0,ge=0), limit: int=Query(30,ge=1,le=100), db: Session=Depends(get_db)):
@@ -55,7 +55,7 @@ def skill_detail(skill_id: str, db: Session=Depends(get_db)):
     obj=db.scalar(select(models.Skill).options(selectinload(models.Skill.occupations).selectinload(models.OccupationSkill.occupation)).where(models.Skill.id==skill_id))
     if not obj: raise HTTPException(404,"Compétence introuvable")
     trend=db.scalar(select(models.TrendScore).where(models.TrendScore.entity_id==obj.id).order_by(models.TrendScore.period.desc()))
-    return {"id":obj.id,"canonical_name":obj.canonical_name,"description":obj.description,"skill_type":obj.skill_type,"esco_uri":obj.esco_uri,"occupations":[{"id":rel.occupation.id,"name":rel.occupation.canonical_name,"relationship":rel.relationship_type} for rel in obj.occupations],"trend":None if not trend else {"score":trend.score,"growth":trend.growth,"method_version":trend.method_version,"is_official":False}}
+    return {"id":obj.id,"canonical_name":obj.canonical_name,"description":obj.description,"skill_type":obj.skill_type,"esco_uri":obj.esco_uri,"aliases":obj.aliases,"multilingual_labels":obj.multilingual_labels,"multilingual_descriptions":obj.multilingual_descriptions,"occupations":[{"id":rel.occupation.id,"name":rel.occupation.canonical_name,"relationship":rel.relationship_type,"weight":rel.weight} for rel in obj.occupations],"trend":None if not trend else {"score":trend.score,"growth":trend.growth,"method_version":trend.method_version,"is_official":False}}
 
 @router.get("/trends/skills", response_model=list[schemas.TrendOut])
 def skill_trends(limit: int=Query(20,ge=1,le=100), db: Session=Depends(get_db)):
@@ -68,8 +68,8 @@ def sources(db: Session=Depends(get_db)):
     return [{"id":x.id,"slug":x.slug,"name":x.name,"type":x.source_type,"enabled":x.enabled,"requires_credentials":x.requires_credentials,"last_success_at":x.last_success_at} for x in rows]
 
 @router.post("/imports/{source}", response_model=schemas.ImportOut)
-async def import_source(source: str, query: str="data", limit: int=50, x_admin_key: str | None=Header(None), db: Session=Depends(get_db)):
+async def import_source(source: str, query: str="data", limit: int=50, max_relation_skills: int | None=None, x_admin_key: str | None=Header(None), db: Session=Depends(get_db)):
     if not settings.admin_api_key or x_admin_key != settings.admin_api_key: raise HTTPException(403,"Clé d'administration requise")
-    job=await run_import(db,source,query=query,limit=limit)
+    job=await run_import(db,source,query=query,limit=limit,max_relation_skills=max_relation_skills)
     if job.status=="failed": raise HTTPException(502,{"job_id":job.id,"error":job.error})
     return job

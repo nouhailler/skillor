@@ -34,18 +34,46 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
     try:
         payload = await connector.fetch(**parameters)
         job.raw_path = connector.store_raw(payload)
-        rows = connector.normalize(payload)
-        job.records_fetched = len(rows)
+        normalized = connector.normalize(payload)
+        job.records_fetched = len(normalized.get("entities", [])) + len(normalized.get("relations", [])) if slug == "esco" else len(normalized)
         stored = 0
         if slug == "esco":
-            for row in rows:
+            entities_by_uri = {}
+            for row in normalized["entities"]:
                 model = models.Occupation if row["entity_type"] == "occupation" else models.Skill
                 existing = db.scalar(select(model).where(model.esco_uri == row["esco_uri"]))
                 if existing:
                     existing.canonical_name = row["canonical_name"]
                     existing.description = row.get("description") or existing.description
+                    existing.aliases = row.get("aliases", existing.aliases)
+                    existing.multilingual_labels = row.get("multilingual_labels", existing.multilingual_labels)
+                    existing.multilingual_descriptions = row.get("multilingual_descriptions", existing.multilingual_descriptions)
+                    if row["entity_type"] == "occupation":
+                        existing.isco_code = row.get("isco_code") or existing.isco_code
+                    else:
+                        existing.skill_type = row.get("skill_type") or existing.skill_type
                 else:
-                    db.add(model(canonical_name=row["canonical_name"], description=row.get("description"), esco_uri=row["esco_uri"], aliases=row.get("aliases", [])))
+                    fields = {"canonical_name": row["canonical_name"], "description": row.get("description"), "esco_uri": row["esco_uri"], "aliases": row.get("aliases", {}), "multilingual_labels": row.get("multilingual_labels", {}), "multilingual_descriptions": row.get("multilingual_descriptions", {})}
+                    if row["entity_type"] == "occupation": fields["isco_code"] = row.get("isco_code")
+                    else: fields["skill_type"] = row.get("skill_type")
+                    existing = model(**fields)
+                    db.add(existing)
+                db.flush()
+                entities_by_uri[row["esco_uri"]] = existing
+                stored += 1
+            for relation in normalized["relations"]:
+                occupation = entities_by_uri.get(relation["occupation_uri"]) or db.scalar(select(models.Occupation).where(models.Occupation.esco_uri == relation["occupation_uri"]))
+                skill = entities_by_uri.get(relation["skill_uri"]) or db.scalar(select(models.Skill).where(models.Skill.esco_uri == relation["skill_uri"]))
+                if not occupation or not skill:
+                    continue
+                existing_relation = db.get(models.OccupationSkill, (occupation.id, skill.id))
+                if existing_relation:
+                    existing_relation.relationship_type = relation["relationship_type"]
+                    existing_relation.weight = relation["weight"]
+                    existing_relation.source_id = source.id
+                    existing_relation.confidence_score = 1.0
+                else:
+                    db.add(models.OccupationSkill(occupation_id=occupation.id, skill_id=skill.id, relationship_type=relation["relationship_type"], weight=relation["weight"], source_id=source.id, confidence_score=1.0))
                 stored += 1
         else:
             dataset_code = payload.get("_skillor_dataset", slug)
@@ -53,7 +81,7 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
             if not dataset:
                 dataset = models.SourceDataset(source_id=source.id, external_id=dataset_code, name=payload.get("label", dataset_code), version=payload.get("updated"))
                 db.add(dataset); db.flush()
-            for row in rows:
+            for row in normalized:
                 db.add(models.Observation(source_id=source.id, dataset_id=dataset.id, metric=row["metric"], value=row["value"], unit=row["unit"], period=_period(row.get("period")), geography_code=row.get("geography_code","FR"), geography_name="France" if row.get("geography_code","FR")=="FR" else row.get("geography_code","FR"), metadata_json={"dimensions": row.get("dimensions", {}), "is_official": True}))
                 stored += 1
         source.last_success_at = datetime.now(timezone.utc)

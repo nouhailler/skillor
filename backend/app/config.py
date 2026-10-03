@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     esco_base_url: str = "https://ec.europa.eu/esco/api"
     esco_language: str = "fr"
     esco_version: str = "latest"
+    esco_batch_size: int = 40
+    esco_max_relation_skills: int = 500
     eurostat_base_url: str = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data"
     eurostat_dataset: str = "une_rt_a"
     france_travail_token_url: str = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire"

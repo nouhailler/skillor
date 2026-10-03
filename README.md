@@ -34,6 +34,12 @@ docker compose exec api python -m app.cli sync france_travail
 Les imports sont enregistrés dans `import_jobs` et les réponses sources sont
 conservées sous `data/raw/<source>/`.
 
+L'import ESCO enrichit les métiers avec leurs libellés, descriptions et
+synonymes multilingues, leur groupe ISCO, puis construit les relations vers les
+compétences essentielles et optionnelles. Les fiches de compétences liées sont
+récupérées par lots. `--max-relation-skills` permet de borner un import de test ;
+la valeur par défaut est configurable avec `ESCO_MAX_RELATION_SKILLS`.
+
 ## Tests
 
 ```bash
