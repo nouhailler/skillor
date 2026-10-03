@@ -6,9 +6,17 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import settings
 from app.connectors import EscoConnector, EurostatConnector, FranceTravailConnector
+from app.eurostat_catalog import eurostat_profiles
 from app.services.occupation_mapping import resolve_occupation, resolve_skill
 
 CONNECTORS = {"esco": EscoConnector, "eurostat": EurostatConnector, "france_travail": FranceTravailConnector}
+
+async def run_eurostat_catalog_import(db: Session, profiles: str | list[str] | None = None,
+                                     geography: str = "FR", since: int = 2021) -> list[models.ImportJob]:
+    jobs = []
+    for profile in eurostat_profiles(profiles):
+        jobs.append(await run_import(db, "eurostat", profile=profile, geography=geography, since=since))
+    return jobs
 
 def _period(value: str | None) -> date:
     if not value:
@@ -47,7 +55,9 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
     connector = CONNECTORS[slug]()
     try:
         payload = await connector.fetch(**parameters)
-        job.raw_path = connector.store_raw(payload)
+        raw_suffix = payload.get("_skillor_profile") or payload.get("_skillor_dataset") or "response"
+        raw_suffix = "".join(char if char.isalnum() or char in "-_" else "-" for char in str(raw_suffix))
+        job.raw_path = connector.store_raw(payload, suffix=raw_suffix)
         normalized = connector.normalize(payload)
         job.records_fetched = len(normalized.get("entities", [])) + len(normalized.get("relations", [])) if slug == "esco" else len(normalized)
         stored = 0
@@ -93,8 +103,13 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
             dataset_code = payload.get("_skillor_dataset", slug)
             dataset = db.scalar(select(models.SourceDataset).where(models.SourceDataset.source_id==source.id, models.SourceDataset.external_id==dataset_code))
             if not dataset:
-                dataset = models.SourceDataset(source_id=source.id, external_id=dataset_code, name=payload.get("label", dataset_code), version=payload.get("updated"))
+                dataset = models.SourceDataset(source_id=source.id, external_id=dataset_code, name=payload.get("label", dataset_code), version=payload.get("updated"), metadata_json={})
                 db.add(dataset); db.flush()
+            dataset.name = payload.get("label", dataset.name)
+            dataset.version = payload.get("updated") or dataset.version
+            dataset.metadata_json = {"profile": payload.get("_skillor_profile"), "family": payload.get("_skillor_family"),
+                                     "geography_level": payload.get("_skillor_geography_level"),
+                                     "filters": payload.get("_skillor_filters", {})}
             for row in normalized:
                 occupation_id = skill_id = None
                 resolution = None
@@ -115,6 +130,9 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
                     "natural_key": natural_key,
                     "metadata_json": {
                         "dimensions": row.get("dimensions", {}), "is_official": True,
+                        "dimension_labels": row.get("dimension_labels", {}), "status": row.get("status"),
+                        "dataset": row.get("dataset"), "profile": row.get("profile"), "family": row.get("family"),
+                        "geography_level": row.get("geography_level", "country"),
                         "occupation_resolution": None if not resolution else {"method": resolution.method, "confidence": resolution.confidence},
                         "external_occupation": {"scheme": row.get("occupation_external_scheme"), "code": row.get("occupation_external_code"), "label": row.get("occupation_label")},
                         "external_skill": {"code": row.get("skill_external_code"), "label": row.get("skill_label")},

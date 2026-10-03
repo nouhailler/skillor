@@ -27,7 +27,8 @@ ajoutez `FRANCE_TRAVAIL_CLIENT_ID` et `FRANCE_TRAVAIL_CLIENT_SECRET` dans `.env`
 
 ```bash
 docker compose exec api python -m app.cli sync esco --query data --limit 50
-docker compose exec api python -m app.cli sync eurostat
+docker compose exec api python -m app.cli sync-eurostat --profiles all --geography FR --since 2021
+docker compose exec api python -m app.cli sync eurostat --profile regional_unemployment --since 2021
 docker compose exec api python -m app.cli sync-rome-esco
 docker compose exec api python -m app.cli sync france_travail --dataset market --territory FR
 docker compose exec api python -m app.cli sync france_travail --dataset offers --query python --territory 75 --limit 150
@@ -52,6 +53,20 @@ compétences demandées et les salaires structurés lorsqu'ils sont fournis par 
 source. Les rapprochements non résolus sont conservés comme tels dans les
 métadonnées, sans attribution métier hasardeuse.
 
+Eurostat est organisé en six profils configurables dans
+`backend/app/eurostat_catalog.py` : chômage, emploi, rémunérations, éducation,
+emploi par secteur NACE et chômage régional NUTS 2. Chaque profil définit son
+code de dataset, sa métrique, son niveau géographique et ses filtres de
+dimensions. `EUROSTAT_DATASETS_JSON` permet de surcharger ou d'ajouter des
+profils sans modifier le connecteur. Les libellés de dimensions, statuts
+Eurostat, territoires et réponses JSON-stat brutes sont conservés.
+
+Le frontend ne contient aucun jeu de données métier de repli. Au démarrage, il
+charge le tableau de bord, les catalogues métiers et compétences, les tendances,
+les séries territoriales et la provenance depuis FastAPI. Une API indisponible
+ou une base vide produit un état d'erreur ou un état vide explicite, jamais des
+chiffres simulés. Les exports CSV sont construits à partir des réponses API.
+
 ## Tests
 
 ```bash
@@ -68,9 +83,16 @@ docker compose run --rm api pytest
 - `GET /api/v1/skills/{id}`
 - `GET /api/v1/trends/skills`
 - `GET /api/v1/sources`
+- `GET /api/v1/catalog/occupations`
+- `GET /api/v1/catalog/skills`
+- `GET /api/v1/market/series`
+- `GET /api/v1/market/geographies`
 - `GET /api/v1/sources/france_travail/coverage`
+- `GET /api/v1/eurostat/datasets`
+- `GET /api/v1/eurostat/indicators`
 - `POST /api/v1/imports/{source}` (clé d'administration)
 - `POST /api/v1/imports/france_travail/crosswalk` (clé d'administration)
+- `POST /api/v1/imports/eurostat/catalog` (clé d'administration)
 
 Les valeurs calculées exposent toujours `is_official: false`, leur version de
 méthode et leurs composantes.

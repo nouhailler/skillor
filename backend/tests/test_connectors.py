@@ -1,6 +1,7 @@
 from app.connectors.esco import EscoConnector
 from app.connectors.eurostat import EurostatConnector
 from app.connectors.france_travail import FranceTravailConnector
+from app.eurostat_catalog import eurostat_catalog
 from app.services.occupation_mapping import parse_rome_esco_crosswalk
 
 def test_esco_normalization_supports_hal():
@@ -30,6 +31,28 @@ def test_eurostat_json_stat_normalization():
     assert rows[0]["metric"] == "unemployment_rate"
     assert [x["value"] for x in rows] == [7.4,7.2]
     assert rows[1]["period"] == "2025"
+
+def test_eurostat_catalog_covers_six_indicator_families():
+    catalog=eurostat_catalog()
+    assert set(catalog) == {"unemployment","employment","wages","education","sectors","regional_unemployment"}
+    assert {spec["family"] for spec in catalog.values()} == {"unemployment","employment","wages","education","sectors","regional"}
+    assert catalog["wages"]["filters"]["indic_se"] == "MEAN_E_EUR"
+    assert catalog["wages"]["output_unit"] == "EUR/month"
+
+def test_eurostat_regional_normalization_keeps_french_nuts_and_labels():
+    payload={"id":["unit","geo","time"],"size":[1,2,1],"dimension":{
+        "unit":{"category":{"index":{"PC":0},"label":{"PC":"Percentage"}}},
+        "geo":{"category":{"index":{"FR10":0,"DE11":1},"label":{"FR10":"Île-de-France","DE11":"Stuttgart"}}},
+        "time":{"category":{"index":{"2025":0},"label":{"2025":"2025"}}}},
+        "value":{"0":7.1,"1":4.2},"status":{"0":"p"},"_skillor_dataset":"lfst_r_lfu3rt",
+        "_skillor_profile":"regional_unemployment","_skillor_metric":"regional_unemployment_rate",
+        "_skillor_family":"regional","_skillor_geography_level":"nuts2","_skillor_geography_prefix":"FR"}
+    rows=EurostatConnector().normalize(payload)
+    assert len(rows) == 1
+    assert rows[0]["geography_code"] == "FR10"
+    assert rows[0]["geography_name"] == "Île-de-France"
+    assert rows[0]["status"] == "p"
+    assert rows[0]["dimension_labels"]["unit"] == "Percentage"
 
 def test_france_travail_market_rows_keep_occupation_and_territory_context():
     payload={"resultats":[{"indicateur":"Difficulté recrutement","valeur":"67,5","unite":"percent",

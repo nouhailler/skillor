@@ -1,0 +1,188 @@
+(() => {
+  'use strict';
+  const API_URL = (window.SKILLOR_API_URL || '').replace(/\/$/, '');
+  const state = {dashboard:null, occupations:[], skills:[], trends:[], sources:[], geographies:null, eurostat:[], series:[]};
+  const $ = selector => document.querySelector(selector);
+  const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+  const formatNumber = value => value == null ? '—' : new Intl.NumberFormat('fr-FR',{maximumFractionDigits:1}).format(value);
+  const formatDate = value => value ? new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium'}).format(new Date(value)) : 'Jamais importé';
+  const metricValue = (occupation, metric) => occupation.market?.[metric]?.value ?? null;
+  const empty = message => `<div class="state">${escapeHtml(message)}</div>`;
+  const errorState = message => `<div class="state error">${escapeHtml(message)}</div>`;
+  const iconBrief = '<svg class="icon"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V4h8v3"/></svg>';
+
+  async function apiGet(path) {
+    const response = await fetch(API_URL + path, {headers:{Accept:'application/json'}});
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.json();
+  }
+
+  function hydrateShell() {
+    $('#dashboard').innerHTML = `
+      <div class="page-head"><div><div class="eyebrow">Observatoire connecté</div><h1>Le marché des compétences, en clair.</h1><p class="subtitle">Données issues de PostgreSQL via FastAPI.</p></div><span class="demo-pill" id="dataStatus"><i></i>Chargement des données…</span></div>
+      <div class="kpis" id="dashboardKpis">${empty('Chargement des indicateurs…')}</div>
+      <div class="grid-main"><article class="card"><div class="card-head"><div><h2>Dynamique du marché</h2><div class="subtitle" id="seriesSubtitle">Série observée</div></div></div><div class="chart" id="marketChart">${empty('Chargement de la série…')}</div><div class="provenance"><span id="seriesProvenance">Source en cours de lecture</span><span class="quality">● Données observées</span></div></article><article class="card"><div class="card-head"><div><h2>Compétences en accélération</h2><div class="subtitle">TrendScore interne · 0–100</div></div><button class="link-btn" data-open-view="trends">Explorer</button></div><div class="rank-list" id="dashboardTrends">${empty('Chargement…')}</div></article></div>
+      <div class="lower-grid"><article class="card"><div class="card-head"><div><h2>Métiers les plus demandés</h2><div class="subtitle">Somme des observations France Travail disponibles</div></div></div><div class="bars" id="topOccupations">${empty('Chargement…')}</div></article><article class="card"><div class="card-head"><div><h2>Lecture rapide</h2><div class="subtitle">Synthèse calculée sur les données disponibles</div></div></div><div id="dashboardSummary">${empty('Chargement…')}</div></article></div>`;
+    $('#occupations').innerHTML = `<div class="page-head"><div><div class="eyebrow">Référentiel ESCO</div><h1>Explorer les métiers</h1><p class="subtitle">Fiches, compétences et observations de marché réellement stockées.</p></div><span class="demo-pill" id="occupationCount"><i></i>Chargement…</span></div><div class="section-tools"><input id="occupationSearch" placeholder="Rechercher un métier…"/><div class="filters"><select class="filter" id="sectorFilter"><option value="">Tous les secteurs</option></select></div></div><div class="catalog-grid" id="occupationCards">${empty('Chargement des métiers…')}</div>`;
+    $('#skills').innerHTML = `<div class="page-head"><div><div class="eyebrow">Référentiel de compétences</div><h1>Cartographie des compétences</h1><p class="subtitle">Relations ESCO et tendances calculées en base.</p></div><span class="demo-pill" id="skillCount"><i></i>Chargement…</span></div><div class="section-tools"><input id="skillSearch" placeholder="Rechercher une compétence…"/><div class="filters"><select class="filter" id="skillTypeFilter"><option value="">Tous les types</option><option value="skill">Compétence</option><option value="knowledge">Connaissance</option></select></div></div><div class="catalog-grid" id="skillCards">${empty('Chargement des compétences…')}</div>`;
+    $('#trends').innerHTML = `<div class="page-head"><div><div class="eyebrow">Indicateurs internes</div><h1>Compétences de demain</h1><p class="subtitle">Scores versionnés calculés à partir des observations stockées.</p></div><button class="secondary" id="quadExport">Exporter CSV</button></div><article class="card"><div class="card-head"><div><h2>Matrice score × progression</h2><div class="subtitle">Aucune projection fictive n'est affichée.</div></div></div><div class="quadrant" id="trendQuadrant">${empty('Chargement des tendances…')}</div><div class="provenance"><span>Calcul interne, distinct des données officielles</span><span class="quality">● Méthode versionnée</span></div></article>`;
+    $('#compare').innerHTML = `<div class="page-head"><div><div class="eyebrow">Analyse croisée</div><h1>Comparer les métiers</h1><p class="subtitle">Comparaison des fiches et indicateurs réellement disponibles.</p></div></div><div class="compare-select" id="compareSelectors">${empty('Chargement des métiers…')}</div><article class="card compare-scroll" id="compareResult">${empty('Sélectionnez des métiers à comparer.')}</article>`;
+    $('#geo').innerHTML = `<div class="page-head"><div><div class="eyebrow">Dynamiques territoriales</div><h1>Indicateurs par territoire</h1><p class="subtitle">France Travail lorsque disponible, sinon indicateur régional Eurostat.</p></div><span class="demo-pill" id="geoPeriod"><i></i>Chargement…</span></div><div class="filters" style="margin-bottom:16px"><select class="filter" id="geoMetric"><option value="job_offers">Offres France Travail</option><option value="regional_unemployment_rate">Chômage régional Eurostat</option></select></div><div class="geo-grid" id="geoCards">${empty('Chargement des territoires…')}</div>`;
+    $('#sources').innerHTML = `<div class="page-head"><div><div class="eyebrow">Provenance & fraîcheur</div><h1>Sources de données</h1><p class="subtitle">État lu directement dans la table des sources.</p></div><span class="demo-pill" id="sourceCount"><i></i>Chargement…</span></div><div class="sources-grid" id="sourceCards">${empty('Chargement des sources…')}</div><article class="card" style="margin-top:13px"><div class="card-head"><div><h2>Datasets Eurostat configurés</h2><div class="subtitle">Catalogue actif et dernière version importée</div></div></div><div id="eurostatDatasets">${empty('Chargement…')}</div></article>`;
+    if (!$('#entityModal')) document.body.insertAdjacentHTML('beforeend','<div class="modal-backdrop" id="entityModal"><article class="modal"><div class="modal-head"><div id="modalTitle"></div><button class="modal-close" aria-label="Fermer">×</button></div><div id="modalBody"></div></article></div>');
+    document.querySelectorAll('[data-open-view]').forEach(button => button.onclick = () => showView(button.dataset.openView));
+    bindControls();
+  }
+
+  function renderDashboard() {
+    const data = state.dashboard;
+    const cards = [
+      ['Observations stockées',data.kpis.observations,'Toutes sources'],
+      ['Métiers suivis',data.kpis.occupations,'Référentiel en base'],
+      ['Compétences',data.kpis.skills,'Référentiel en base'],
+      ['Territoires',data.kpis.geographies,'Codes géographiques observés'],
+    ];
+    $('#dashboardKpis').innerHTML = cards.map((card,index) => `<article class="card kpi" style="--accent:${['var(--lime)','var(--mint)','var(--coral)','var(--amber)'][index]}"><div class="kpi-top"><span>${card[0]}</span></div><div class="kpi-value">${formatNumber(card[1])}</div><span class="delta">${card[2]}</span></article>`).join('');
+    $('#dataStatus').innerHTML = '<i style="background:var(--mint)"></i>Base connectée';
+    $('#dashboardTrends').innerHTML = data.top_skill_trends.length ? data.top_skill_trends.map((item,index) => `<div class="rank"><span class="rank-num">${String(index+1).padStart(2,'0')}</span><div class="rank-name"><b>${escapeHtml(item.name)}</b><small>Calcul interne · v${escapeHtml(item.method_version)}</small></div><div class="rank-score">${formatNumber(item.score)}<small>${item.growth >= 0 ? '+' : ''}${formatNumber(item.growth)} %</small></div></div>`).join('') : empty('Aucun TrendScore calculé.');
+    renderSeries();
+    const ranked = [...state.occupations].filter(item => metricValue(item,'job_offers') != null).sort((a,b) => metricValue(b,'job_offers')-metricValue(a,'job_offers')).slice(0,5);
+    const maximum = Math.max(...ranked.map(item => metricValue(item,'job_offers')),1);
+    $('#topOccupations').innerHTML = ranked.length ? ranked.map(item => `<div class="bar-row"><span>${escapeHtml(item.canonical_name)}</span><div class="bar-track"><div class="bar-fill" style="--w:${100*metricValue(item,'job_offers')/maximum}%"></div></div><b>${formatNumber(metricValue(item,'job_offers'))}</b></div>`).join('') : empty('Aucune offre France Travail rattachée à un métier.');
+    const topSkill = data.top_skill_trends[0]; const topOccupation = ranked[0];
+    $('#dashboardSummary').innerHTML = `<div class="notice">Cette synthèse ne complète jamais les données manquantes par des valeurs fictives.</div><div class="fact"><span>Signal de compétence le plus fort</span><b>${topSkill ? escapeHtml(topSkill.name) : 'Non calculé'}</b></div><div class="fact"><span>Métier avec le plus d'offres liées</span><b>${topOccupation ? escapeHtml(topOccupation.canonical_name) : 'Non disponible'}</b></div><div class="fact"><span>Dernière observation</span><b>${formatDate(data.latest_update)}</b></div>`;
+  }
+
+  function renderSeries() {
+    if (!state.series.length) { $('#marketChart').innerHTML = empty('Aucune série job_offers disponible.'); $('#seriesProvenance').textContent='France Travail · aucune donnée importée'; return; }
+    const width=760,height=210,pad=28; const values=state.series.map(item=>item.value); const min=Math.min(...values),max=Math.max(...values); const span=max-min||1;
+    const points=state.series.map((item,index)=>`${pad+index*(width-2*pad)/Math.max(1,state.series.length-1)},${height-pad-(item.value-min)*(height-2*pad)/span}`).join(' ');
+    $('#marketChart').innerHTML=`<svg class="line-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><polyline class="trend-line" points="${points}"/></svg>`;
+    $('#seriesSubtitle').textContent=`${state.series.length} périodes observées`;
+    $('#seriesProvenance').textContent='France Travail · somme des offres rattachées';
+  }
+
+  function occupationCard(item) {
+    const offers=metricValue(item,'job_offers'), difficulty=metricValue(item,'recruitment_difficulty');
+    return `<article class="catalog-card" data-occupation-id="${escapeHtml(item.id)}"><div class="top"><div><span class="tag">${escapeHtml(item.sector||item.isco_code||'Métier')}</span><h3 style="margin-top:11px">${escapeHtml(item.canonical_name)}</h3></div><span class="kpi-icon" style="--accent:var(--mint)">${iconBrief}</span></div><p>${escapeHtml(item.description||'Description ESCO non disponible.')}</p><div class="chips">${item.skills.map(skill=>`<span class="chip">${escapeHtml(skill.name)}</span>`).join('')||'<span class="chip">Compétences non importées</span>'}</div><div class="metric-row"><div><b>${formatNumber(offers)}</b>offres liées</div><div><b>${formatNumber(difficulty)}</b>difficulté</div><div><b>${escapeHtml(item.isco_code||'—')}</b>ISCO</div></div></article>`;
+  }
+
+  function renderOccupations(items=state.occupations) {
+    $('#occupationCards').innerHTML=items.length?items.map(occupationCard).join(''):empty('Aucun métier ne correspond aux critères.');
+    $('#occupationCount').innerHTML=`<i style="background:var(--mint)"></i>${formatNumber(items.length)} affichés`;
+    document.querySelectorAll('[data-occupation-id]').forEach(card=>card.onclick=()=>openOccupation(card.dataset.occupationId));
+  }
+
+  function skillCard(item) {
+    const trend=item.trend;
+    return `<article class="catalog-card" data-skill-id="${escapeHtml(item.id)}"><div class="top"><div><span class="tag">${escapeHtml(item.skill_type||'Non classée')}</span><h3 style="margin-top:11px">${escapeHtml(item.canonical_name)}</h3></div><b style="font:800 22px 'Manrope';color:var(--lime)">${trend?formatNumber(trend.score):'—'}</b></div><p>${escapeHtml(item.description||'Description ESCO non disponible.')}</p><div class="metric-row"><div><b>${formatNumber(item.occupation_count)}</b>métiers liés</div><div><b class="${trend&&trend.growth>=0?'trend-up':''}">${trend?`${trend.growth>=0?'+':''}${formatNumber(trend.growth)} %`:'—'}</b>croissance</div><div><b>${trend?`v${escapeHtml(trend.method_version)}`:'—'}</b>méthode</div></div></article>`;
+  }
+
+  function renderSkills(items=state.skills) {
+    $('#skillCards').innerHTML=items.length?items.map(skillCard).join(''):empty('Aucune compétence ne correspond aux critères.');
+    $('#skillCount').innerHTML=`<i style="background:var(--mint)"></i>${formatNumber(items.length)} affichées`;
+    document.querySelectorAll('[data-skill-id]').forEach(card=>card.onclick=()=>openSkill(card.dataset.skillId));
+  }
+
+  function renderTrends() {
+    if(!state.trends.length){$('#trendQuadrant').innerHTML=empty('Aucune tendance calculée. Lancez le calcul des TrendScores.');return;}
+    const growths=state.trends.map(item=>item.growth); const min=Math.min(...growths),max=Math.max(...growths),span=max-min||1;
+    $('#trendQuadrant').innerHTML='<span class="quad-label ql1">Score élevé · croissance forte</span><span class="quad-label ql2">Croissance forte</span><span class="quad-label ql3">À surveiller</span><span class="quad-label ql4">Score élevé</span>'+state.trends.map((item,index)=>{const x=Math.max(7,Math.min(93,item.score));const y=8+84*(item.growth-min)/span;const size=24+Math.min(26,item.score/4);return `<button class="bubble" data-name="${escapeHtml(item.name)}" style="--x:${x}%;--y:${y}%;--s:${size}px;--c:${index%3===0?'var(--lime)':index%3===1?'var(--mint)':'var(--coral)'}" title="${escapeHtml(item.name)} · score ${formatNumber(item.score)} · ${formatNumber(item.growth)} %"></button>`}).join('')+'<span class="axis-x">TrendScore →</span><span class="axis-y">Progression →</span>';
+  }
+
+  function renderCompareSelectors() {
+    if(!state.occupations.length){$('#compareSelectors').innerHTML=empty('Aucun métier disponible.');return;}
+    const defaults=state.occupations.slice(0,3); const options=state.occupations.map(item=>`<option value="${escapeHtml(item.id)}">${escapeHtml(item.canonical_name)}</option>`).join('');
+    $('#compareSelectors').innerHTML=[0,1,2].map((index)=>`<div class="compare-person"><span class="tag">Métier ${String.fromCharCode(65+index)}</span><select class="job-select" data-compare-index="${index}">${options}</select></div>`).join('');
+    document.querySelectorAll('.job-select').forEach((select,index)=>{if(defaults[index])select.value=defaults[index].id;select.onchange=renderComparison});
+    renderComparison();
+  }
+
+  async function renderComparison() {
+    const ids=[...document.querySelectorAll('.job-select')].map(select=>select.value).filter(Boolean);
+    if(!ids.length)return;
+    $('#compareResult').innerHTML=empty('Chargement de la comparaison…');
+    try{
+      const rows=await Promise.all(ids.map(id=>apiGet(`/api/v1/occupations/${encodeURIComponent(id)}`)));
+      const value=(row,metric)=>{const items=row.market.filter(item=>item.metric===metric);return items.length?items.reduce((sum,item)=>sum+item.value,0):null};
+      const common=rows.map(row=>new Set(row.skills.map(skill=>skill.name))).reduce((left,right)=>new Set([...left].filter(item=>right.has(item))));
+      const body=[['Offres', 'job_offers'],['Demandeurs','job_seekers'],['Embauches','hires'],['Salaire moyen','salary_average'],['Difficulté de recrutement','recruitment_difficulty']].map(([label,metric])=>`<tr><td>${label}</td>${rows.map(row=>`<td><b>${formatNumber(value(row,metric))}</b></td>`).join('')}</tr>`).join('');
+      $('#compareResult').innerHTML=`<table class="compare-table"><thead><tr><th>Indicateur</th>${rows.map(row=>`<th>${escapeHtml(row.canonical_name)}</th>`).join('')}</tr></thead><tbody>${body}<tr><td>Compétences communes</td><td colspan="${rows.length}">${[...common].map(item=>`<span class="chip">${escapeHtml(item)}</span>`).join(' ')||'<span class="empty-value">Aucune relation commune importée</span>'}</td></tr></tbody></table><div class="provenance"><span>Valeurs lues dans les observations rattachées aux métiers</span><span>— = donnée absente</span></div>`;
+    }catch(error){$('#compareResult').innerHTML=errorState(`Comparaison indisponible : ${error.message}`)}
+  }
+
+  function renderGeographies() {
+    const data=state.geographies;
+    if(data?.metric) $('#geoMetric').value=data.metric;
+    $('#geoPeriod').innerHTML=`<i style="background:var(--mint)"></i>${data?.period?formatDate(data.period):'Aucune période'}`;
+    $('#geoCards').innerHTML=data?.items?.length?data.items.map(item=>`<article class="card"><span class="tag">${escapeHtml(item.code)}</span><h3 style="margin-top:12px">${escapeHtml(item.name)}</h3><div class="geo-value">${formatNumber(item.value)}</div><span class="subtitle">${escapeHtml(item.unit)} · ${escapeHtml(data.metric)}</span></article>`).join(''):empty('Aucun indicateur territorial pour cette métrique.');
+  }
+
+  function renderSources() {
+    $('#sourceCount').innerHTML=`<i style="background:var(--mint)"></i>${state.sources.length} sources`;
+    $('#sourceCards').innerHTML=state.sources.length?state.sources.map(source=>`<article class="card source-card"><div class="source-logo">${escapeHtml(source.name.split(' ').map(word=>word[0]).join('').slice(0,2))}</div><h2>${escapeHtml(source.name)}</h2><p class="subtitle">Type : ${escapeHtml(source.type)}${source.requires_credentials?' · OAuth requis':''}</p><div class="source-meta"><span class="dot" style="background:${source.last_success_at?'var(--mint)':'var(--amber)'}"></span>${source.last_success_at?'Dernier succès : '+formatDate(source.last_success_at):'Aucun import réussi enregistré'}</div></article>`).join(''):empty('Aucune source configurée.');
+    $('#eurostatDatasets').innerHTML=state.eurostat.length?`<table class="data-table"><thead><tr><th>Profil</th><th>Dataset</th><th>Famille</th><th>Dernière version</th></tr></thead><tbody>${state.eurostat.map(item=>`<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.code)}</td><td>${escapeHtml(item.family)}</td><td>${item.imported?formatDate(item.last_update):'Non importé'}</td></tr>`).join('')}</tbody></table>`:empty('Aucun profil Eurostat configuré.');
+    const latest=state.sources.map(source=>source.last_success_at).filter(Boolean).sort().at(-1);
+    $('#sourceStatus').innerHTML=`<b><span class="dot" style="background:${latest?'var(--mint)':'var(--amber)'}"></span>${latest?'Sources connectées':'Sources configurées'}</b>${latest?'Dernier import réussi<br>'+formatDate(latest):'Aucun import réel enregistré'}`;
+  }
+
+  async function openOccupation(id) {
+    openModal('Chargement…',empty('Lecture de la fiche métier…'));
+    try{const row=await apiGet(`/api/v1/occupations/${encodeURIComponent(id)}`);openModal(escapeHtml(row.canonical_name),`<p class="subtitle">${escapeHtml(row.description||'Description non disponible.')}</p><div class="fact"><span>ESCO</span><b>${escapeHtml(row.esco_uri||'—')}</b></div><div class="fact"><span>ISCO</span><b>${escapeHtml(row.isco_code||'—')}</b></div><h3 style="margin-top:20px">Compétences</h3><div class="chips" style="margin-top:10px">${row.skills.map(skill=>`<span class="chip">${escapeHtml(skill.name)} · ${escapeHtml(skill.relationship)}</span>`).join('')||'Aucune relation importée'}</div><h3 style="margin-top:20px">Observations de marché</h3>${row.market.length?`<table class="data-table"><tbody>${row.market.map(item=>`<tr><td>${escapeHtml(item.metric)}</td><td>${formatNumber(item.value)} ${escapeHtml(item.unit)}</td><td>${escapeHtml(item.geography_name)}</td><td>${formatDate(item.period)}</td></tr>`).join('')}</tbody></table>`:empty('Aucune observation rattachée.')}`)}catch(error){openModal('Erreur',errorState(error.message))}
+  }
+
+  async function openSkill(id) {
+    openModal('Chargement…',empty('Lecture de la fiche compétence…'));
+    try{const row=await apiGet(`/api/v1/skills/${encodeURIComponent(id)}`);openModal(escapeHtml(row.canonical_name),`<p class="subtitle">${escapeHtml(row.description||'Description non disponible.')}</p><div class="fact"><span>Type</span><b>${escapeHtml(row.skill_type||'—')}</b></div><div class="fact"><span>URI ESCO</span><b>${escapeHtml(row.esco_uri||'—')}</b></div><h3 style="margin-top:20px">Métiers liés</h3><div class="chips" style="margin-top:10px">${row.occupations.map(item=>`<span class="chip">${escapeHtml(item.name)} · ${escapeHtml(item.relationship)}</span>`).join('')||'Aucun métier lié'}</div>`)}catch(error){openModal('Erreur',errorState(error.message))}
+  }
+
+  function openModal(title,body){$('#modalTitle').innerHTML=`<h2>${title}</h2>`;$('#modalBody').innerHTML=body;$('#entityModal').classList.add('open')}
+
+  function bindControls() {
+    let occupationTimer, skillTimer, globalTimer;
+    $('#occupationSearch').oninput=event=>{clearTimeout(occupationTimer);occupationTimer=setTimeout(()=>loadOccupations(event.target.value,$('#sectorFilter').value),250)};
+    $('#sectorFilter').onchange=event=>loadOccupations($('#occupationSearch').value,event.target.value);
+    $('#skillSearch').oninput=event=>{clearTimeout(skillTimer);skillTimer=setTimeout(()=>loadSkills(event.target.value,$('#skillTypeFilter').value),250)};
+    $('#skillTypeFilter').onchange=event=>loadSkills($('#skillSearch').value,event.target.value);
+    $('#geoMetric').onchange=event=>loadGeographies(event.target.value);
+    $('#entityModal').onclick=event=>{if(event.target.id==='entityModal'||event.target.closest('.modal-close'))$('#entityModal').classList.remove('open')};
+    $('#download').onclick=downloadCSV; $('#quadExport').onclick=downloadCSV;
+    const global=$('#globalSearch'),results=$('#searchResults');
+    global.oninput=()=>{clearTimeout(globalTimer);const query=global.value.trim();if(query.length<2){results.classList.remove('show');return}globalTimer=setTimeout(async()=>{try{const rows=await apiGet(`/api/v1/search?q=${encodeURIComponent(query)}&limit=8`);results.innerHTML=rows.length?rows.map(item=>`<button class="search-item" style="width:100%;border:0;background:transparent;color:var(--text)" data-search-id="${escapeHtml(item.id)}" data-search-type="${escapeHtml(item.type)}"><span>${escapeHtml(item.name)}</span><span class="tag">${item.type==='occupation'?'Métier':'Compétence'}</span></button>`).join(''):'<div class="search-item">Aucun résultat</div>';results.classList.add('show');results.querySelectorAll('[data-search-id]').forEach(button=>button.onclick=()=>{results.classList.remove('show');global.value='';button.dataset.searchType==='occupation'?openOccupation(button.dataset.searchId):openSkill(button.dataset.searchId)})}catch(error){results.innerHTML='<div class="search-item">Recherche indisponible</div>';results.classList.add('show')}},250)};
+  }
+
+  async function loadOccupations(query='',sector='') {
+    $('#occupationCards').innerHTML=empty('Chargement…');
+    try{const params=new URLSearchParams({limit:'60'});if(query)params.set('q',query);if(sector)params.set('sector',sector);state.occupations=await apiGet(`/api/v1/catalog/occupations?${params}`);occupations=state.occupations;renderOccupations();if(!query&&!sector)populateSectors();}catch(error){$('#occupationCards').innerHTML=errorState(`Métiers indisponibles : ${error.message}`)}
+  }
+
+  async function loadSkills(query='',type='') {
+    $('#skillCards').innerHTML=empty('Chargement…');
+    try{const params=new URLSearchParams({limit:'60'});if(query)params.set('q',query);if(type)params.set('skill_type',type);state.skills=await apiGet(`/api/v1/catalog/skills?${params}`);skills=state.skills;renderSkills();}catch(error){$('#skillCards').innerHTML=errorState(`Compétences indisponibles : ${error.message}`)}
+  }
+
+  function populateSectors(){const select=$('#sectorFilter');const current=select.value;const sectors=[...new Set(state.occupations.map(item=>item.sector).filter(Boolean))].sort();select.innerHTML='<option value="">Tous les secteurs</option>'+sectors.map(item=>`<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('');select.value=current}
+  async function loadGeographies(metric='job_offers'){try{state.geographies=await apiGet(`/api/v1/market/geographies?metric=${encodeURIComponent(metric)}&limit=60`);renderGeographies()}catch(error){$('#geoCards').innerHTML=errorState(`Territoires indisponibles : ${error.message}`)}}
+
+  function downloadCSV(){const rows=[['type','nom','identifiant','volume_offres','score_tendance'],...state.occupations.map(item=>['metier',item.canonical_name,item.id,metricValue(item,'job_offers')??'', '']),...state.skills.map(item=>['competence',item.canonical_name,item.id,'',item.trend?.score??''])];const csv=rows.map(row=>row.map(value=>`"${String(value).replaceAll('"','""')}"`).join(';')).join('\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='skillor-donnees-api.csv';link.click();URL.revokeObjectURL(link.href)}
+
+  async function init() {
+    hydrateShell();
+    const badge=$('#apiStatus');
+    try{
+      const [dashboardData,occupationData,skillData,trendsData,sourcesData,seriesData,geographyData,eurostatData]=await Promise.all([
+        apiGet('/api/v1/dashboard'),apiGet('/api/v1/catalog/occupations?limit=60'),apiGet('/api/v1/catalog/skills?limit=60'),
+        apiGet('/api/v1/trends/skills?limit=30'),apiGet('/api/v1/sources'),apiGet('/api/v1/market/series?metric=job_offers'),
+        apiGet('/api/v1/market/geographies?metric=job_offers&limit=60'),apiGet('/api/v1/eurostat/datasets')]);
+      Object.assign(state,{dashboard:dashboardData,occupations:occupationData,skills:skillData,trends:trendsData,sources:sourcesData,series:seriesData,geographies:geographyData,eurostat:eurostatData});
+      occupations=occupationData;skills=skillData;
+      badge.innerHTML='<i style="background:var(--mint)"></i>API connectée';
+      renderOccupations();renderSkills();renderTrends();renderCompareSelectors();renderGeographies();renderSources();populateSectors();renderDashboard();
+    } catch(error) {
+      badge.innerHTML='<i style="background:var(--coral)"></i>API indisponible';badge.title=error.message;
+      ['dashboardKpis','occupationCards','skillCards','trendQuadrant','compareResult','geoCards','sourceCards'].forEach(id=>{const node=$('#'+id);if(node)node.innerHTML=errorState(`Impossible de charger l'API : ${error.message}`)});
+      $('#dataStatus').innerHTML='<i style="background:var(--coral)"></i>Aucune donnée affichée';
+    }
+  }
+  init();
+})();

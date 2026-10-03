@@ -18,7 +18,7 @@ class FakeFranceTravailConnector:
         }]}
 
     def normalize(self, payload): return FranceTravailConnector().normalize(payload)
-    def store_raw(self, payload): return "/tmp/france-travail-test.json"
+    def store_raw(self, payload, **_): return "/tmp/france-travail-test.json"
     async def close(self): pass
 
 def test_france_travail_import_links_occupation_and_skill_and_is_idempotent(tmp_path, monkeypatch):

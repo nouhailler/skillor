@@ -39,7 +39,7 @@ class BaseConnector(ABC):
         raise ConnectorError(f"{self.slug}: {error}") from error
 
     def store_raw(self, payload: dict, suffix: str = "response") -> str:
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         directory = Path(settings.raw_data_dir) / self.slug / stamp[:8]
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / f"{stamp}-{suffix}.json"

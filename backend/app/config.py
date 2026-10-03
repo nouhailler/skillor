@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     esco_max_relation_skills: int = 500
     eurostat_base_url: str = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data"
     eurostat_dataset: str = "une_rt_a"
+    eurostat_datasets_json: str = ""
     france_travail_token_url: str = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire"
     france_travail_base_url: str = "https://api.francetravail.io/partenaire/marche-travail/v1"
     france_travail_client_id: str = ""
