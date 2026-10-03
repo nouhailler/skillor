@@ -8,6 +8,7 @@
   <title>Skill Intelligence — Observatoire des compétences</title>
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <script src="/config.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
     :root{--bg:#071711;--panel:#0d211a;--panel2:#112920;--text:#eef7f2;--muted:#98afa4;--line:#234036;--lime:#b9f227;--mint:#6ee7d2;--coral:#ff8a65;--amber:#f9c74f;--sidebar:232px;--shadow:0 20px 55px rgba(0,0,0,.2)}
@@ -21,7 +22,7 @@
     .map-layout{display:grid;grid-template-columns:1.4fr .8fr;gap:13px}.map{min-height:510px;position:relative;display:grid;place-items:center;overflow:hidden;background:radial-gradient(circle at 50% 47%,color-mix(in srgb,var(--lime) 7%,transparent),transparent 60%),var(--panel)}.map svg{width:min(78%,540px);height:455px}.region{stroke:var(--bg);stroke-width:3;fill:var(--fill);transition:.2s;cursor:pointer}.region:hover,.region.active{stroke:var(--text);filter:brightness(1.22)}.map-tip{position:absolute;left:20px;bottom:20px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 13px;box-shadow:var(--shadow)}.scale{position:absolute;right:20px;bottom:20px;color:var(--muted);font-size:11px}.gradient{width:120px;height:8px;background:linear-gradient(90deg,#29463a,var(--lime));border-radius:5px;margin-top:6px}.region-detail .big{font:800 38px 'Manrope';margin:18px 0 2px}.fact{display:flex;justify-content:space-between;padding:13px 0;border-bottom:1px solid var(--line)}.fact span{color:var(--muted)}
     .sources-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}.source-card{min-height:190px}.source-logo{width:42px;height:42px;border-radius:10px;background:var(--panel2);display:grid;place-items:center;font:800 12px 'Manrope';color:var(--lime);margin-bottom:18px}.source-meta{margin-top:18px;padding-top:13px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}.method-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}.formula{font-family:monospace;background:var(--bg);border:1px solid var(--line);padding:16px;border-radius:10px;color:var(--mint);margin:15px 0;overflow:auto}.notice{border-left:3px solid var(--amber);background:color-mix(in srgb,var(--amber) 7%,var(--panel));padding:13px 15px;border-radius:0 9px 9px 0;color:var(--muted);font-size:13px}.mobile-overlay{display:none}
     @media(max-width:1050px){.kpis{grid-template-columns:repeat(2,1fr)}.catalog-grid,.sources-grid{grid-template-columns:repeat(2,1fr)}.grid-main,.map-layout{grid-template-columns:1fr}.map{min-height:450px}}
-    @media(max-width:760px){:root{--sidebar:260px}.app{display:block}.sidebar{transform:translateX(-101%);transition:.25s}.sidebar.open{transform:none}.mobile-overlay.show{display:block;position:fixed;inset:0;background:#0009;z-index:25}.main{display:block}.menu{display:grid}.topbar{padding:0 16px;height:65px}.topbar kbd{display:none}.content{padding:22px 16px 50px}.page-head{align-items:flex-start;flex-direction:column}.kpis,.catalog-grid,.sources-grid,.lower-grid,.method-grid,.compare-select{grid-template-columns:1fr}.grid-main{grid-template-columns:1fr}.kpi{min-height:112px}.quadrant{height:360px;margin-left:42px}.axis-y{left:-55px}.compare-scroll{overflow:auto}.compare-table{min-width:700px}.bar-row{grid-template-columns:100px 1fr 38px}.top-actions .icon-btn:first-child{display:none}}
+    @media(max-width:760px){:root{--sidebar:260px}.app{display:block}.sidebar{transform:translateX(-101%);transition:.25s}.sidebar.open{transform:none}.mobile-overlay.show{display:block;position:fixed;inset:0;background:#0009;z-index:25}.main{display:block}.menu{display:grid}.topbar{padding:0 16px;height:65px}.topbar kbd,#apiStatus{display:none}.content{padding:22px 16px 50px}.page-head{align-items:flex-start;flex-direction:column}.kpis,.catalog-grid,.sources-grid,.lower-grid,.method-grid,.compare-select{grid-template-columns:1fr}.grid-main{grid-template-columns:1fr}.kpi{min-height:112px}.quadrant{height:360px;margin-left:42px}.axis-y{left:-55px}.compare-scroll{overflow:auto}.compare-table{min-width:700px}.bar-row{grid-template-columns:100px 1fr 38px}.top-actions .icon-btn:first-child{display:none}}
     .menu{display:none!important}@media(max-width:760px){.menu{display:grid!important}}
   </style>
 </head>
@@ -51,7 +52,7 @@
     <header class="topbar">
       <button class="icon-btn menu" id="menu" aria-label="Ouvrir le menu"><svg class="icon"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
       <div class="search"><svg class="icon"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input id="globalSearch" placeholder="Rechercher un métier, une compétence, une région…" aria-label="Recherche globale"/><kbd>⌘ K</kbd><div class="search-results" id="searchResults"></div></div>
-      <div class="top-actions"><button class="icon-btn" id="download" aria-label="Exporter en CSV" title="Exporter en CSV"><svg class="icon"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg></button><button class="icon-btn" id="theme" aria-label="Changer le thème"><svg class="icon"><path d="M20 15.5A8.5 8.5 0 118.5 4 7 7 0 0020 15.5z"/></svg></button></div>
+      <div class="top-actions"><span class="demo-pill" id="apiStatus"><i></i>Connexion API…</span><button class="icon-btn" id="download" aria-label="Exporter en CSV" title="Exporter en CSV"><svg class="icon"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg></button><button class="icon-btn" id="theme" aria-label="Changer le thème"><svg class="icon"><path d="M20 15.5A8.5 8.5 0 118.5 4 7 7 0 0020 15.5z"/></svg></button></div>
     </header>
     <div class="content">
       <section class="view active" id="dashboard">
@@ -119,6 +120,25 @@ global.addEventListener('input',search);document.addEventListener('click',e=>{if
 document.querySelectorAll('.region').forEach(r=>r.onclick=()=>{document.querySelectorAll('.region').forEach(x=>x.classList.remove('active'));r.classList.add('active');['regionName','regionTitle'].forEach(id=>document.querySelector('#'+id).textContent=r.dataset.region);document.querySelector('#regionValue').textContent=r.dataset.value+' offres';document.querySelector('#regionBig').textContent=r.dataset.value});
 function downloadCSV(){const rows=[['type','nom','volume','progression'],...occupations.map(o=>['metier',o.name,o.offers,o.growth]),...skills.map(s=>['competence',s.name,s.jobs,s.growth])];const blob=new Blob([rows.map(r=>r.join(';')).join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='skill-intelligence-demo.csv';a.click();URL.revokeObjectURL(a.href)}
 document.querySelector('#download').onclick=downloadCSV;document.querySelector('#quadExport').onclick=downloadCSV;document.querySelector('#printMethod').onclick=()=>window.print();
+const API=(window.SKILLOR_API_URL||'').replace(/\/$/,'');
+async function apiGet(path){const response=await fetch(API+path,{headers:{Accept:'application/json'}});if(!response.ok)throw new Error('API '+response.status);return response.json()}
+function compactNumber(value){return new Intl.NumberFormat('fr-FR',{notation:value>9999?'compact':'standard',maximumFractionDigits:1}).format(value)}
+async function connectApi(){
+  const badge=document.querySelector('#apiStatus');
+  try{
+    const dashboard=await apiGet('/api/v1/dashboard');
+    badge.innerHTML='<i style="background:var(--mint)"></i>API connectée';
+    const kpiLabel=document.querySelector('.kpi-top span');if(kpiLabel)kpiLabel.textContent='Observations stockées';
+    const dataBadge=document.querySelectorAll('.demo-pill')[1];if(dataBadge)dataBadge.innerHTML='<i style="background:var(--mint)"></i>Base connectée · données initiales';
+    const values=document.querySelectorAll('.kpi-value');
+    if(values[0]) values[0].textContent=compactNumber(dashboard.kpis.observations);
+    if(values[1]) values[1].textContent=compactNumber(dashboard.kpis.occupations);
+    if(values[2]) values[2].textContent=compactNumber(dashboard.kpis.skills);
+    const ranks=document.querySelector('.rank-list');
+    if(ranks&&dashboard.top_skill_trends.length) ranks.innerHTML=dashboard.top_skill_trends.map((x,i)=>`<div class="rank"><span class="rank-num">${String(i+1).padStart(2,'0')}</span><div class="rank-name"><b>${x.name}</b><small>Calcul interne · v${x.method_version}</small></div><div class="rank-score">${Math.round(x.score)}<small>+${x.growth} %</small></div></div>`).join('');
+  }catch(error){badge.innerHTML='<i style="background:var(--amber)"></i>Mode démo · API hors ligne';badge.title='Les données de démonstration restent visibles tant que l’API n’est pas joignable.'}
+}
+connectApi();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js');
 </script>
 </body>
