@@ -117,13 +117,13 @@ def search_entities(db: Session, query: str, *, entity_type: str | None = None, 
         stmt = stmt.where(models.SearchTerm.language == language)
     if source:
         stmt = stmt.where(models.SearchTerm.source == source)
-    dialect = db.bind.dialect.name
-    if dialect == "postgresql" and fuzzy:
-        similarity = func.similarity(models.SearchTerm.normalized_term, normalized)
-        stmt = stmt.where(or_(models.SearchTerm.normalized_term.ilike(f"%{normalized}%"), models.SearchTerm.normalized_term.op("%")(normalized))).order_by(similarity.desc()).limit(2000)
-    else:
-        first = normalized[:1]
-        stmt = stmt.where(or_(models.SearchTerm.normalized_term.ilike(f"%{normalized}%"), models.SearchTerm.normalized_term.ilike(f"{first}%"))).limit(2000)
+    length_margin = max(3, len(normalized) // 3)
+    token_matches = [models.SearchTerm.normalized_term.ilike(f"%{token}%") for token in normalized.split() if len(token) >= 3]
+    stmt = stmt.where(or_(
+        models.SearchTerm.normalized_term.ilike(f"%{normalized}%"),
+        func.length(models.SearchTerm.normalized_term).between(max(1, len(normalized)-length_margin), len(normalized)+length_margin),
+        *token_matches,
+    )).limit(2000)
     terms = db.scalars(stmt).all()
     threshold = 0.78 if len(normalized) <= 2 else 0.55
     best = {}

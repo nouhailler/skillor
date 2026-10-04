@@ -4,7 +4,7 @@ Skillor est un moteur de connaissance du marché des compétences. Ce dépôt co
 
 - un frontend PWA responsive dans `dist/` ;
 - une API FastAPI dans `backend/` ;
-- une base PostgreSQL avec migrations Alembic ;
+- un fichier SQLite local avec migrations Alembic, sans serveur de base de données ;
 - des connecteurs ESCO, France Travail et Eurostat ;
 - une ingestion traçable avec conservation des réponses brutes ;
 - des scores de tendance et de confiance explicitement identifiés comme internes.
@@ -18,6 +18,17 @@ docker compose up --build
 
 L'API est disponible sur `http://localhost:8000`, sa documentation sur
 `http://localhost:8000/docs` et le frontend sur `http://localhost:8080`.
+
+Le stockage standard est `backend/skillor.sqlite3`, configuré par :
+
+```env
+DATABASE_URL=sqlite:///./skillor.sqlite3
+```
+
+Docker Compose ne lance aucun service de base de données. Le fichier SQLite est
+persisté sur l'hôte par le montage de `backend/` dans le conteneur API. SQLite
+fonctionne en mode WAL, avec clés étrangères actives et un délai d'attente de
+30 secondes pour limiter les erreurs de verrouillage pendant les imports.
 
 La base démarre vide : aucun chiffre de démonstration n'est injecté
 automatiquement. Les connecteurs ESCO et Eurostat ne demandent pas de secret.
@@ -63,8 +74,8 @@ externes ROME. Les appellations réellement observées dans les offres France
 Travail sont ajoutées comme alias traçables. Tout mapping externe dont le
 `source_system` vaut `onet` est automatiquement indexé de la même manière ; le
 dépôt ne télécharge toutefois pas encore le référentiel O*NET lui-même.
-PostgreSQL utilise l'extension `pg_trgm` et un index GIN pour la tolérance aux
-fautes. L'index est entretenu pendant les imports et peut être reconstruit avec :
+La tolérance aux fautes est calculée sur les termes présélectionnés dans SQLite.
+L'index est entretenu pendant les imports et peut être reconstruit avec :
 
 ```bash
 docker compose exec api python -m app.cli reindex-search
