@@ -156,6 +156,37 @@ class DataQualityScore(Base):
     is_official: Mapped[bool] = mapped_column(Boolean, default=False)
     __table_args__ = (UniqueConstraint("source_id", "scope_key", "metric", "period", "method_version"),)
 
+class ProspectiveEdition(Base):
+    __tablename__ = "prospective_editions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), index=True)
+    report_title: Mapped[str] = mapped_column(String(300))
+    edition: Mapped[str] = mapped_column(String(80), index=True)
+    publication_year: Mapped[int] = mapped_column(Integer)
+    horizon_year: Mapped[int | None] = mapped_column(Integer)
+    source_url: Mapped[str | None] = mapped_column(String(500))
+    raw_path: Mapped[str | None] = mapped_column(String(500))
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    __table_args__ = (UniqueConstraint("source_id", "edition"),)
+
+class ProspectiveSkillProjection(Base):
+    __tablename__ = "prospective_skill_projections"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    edition_id: Mapped[str] = mapped_column(ForeignKey("prospective_editions.id", ondelete="CASCADE"), index=True)
+    skill_id: Mapped[str | None] = mapped_column(ForeignKey("skills.id"), index=True)
+    source_label: Mapped[str] = mapped_column(String(300))
+    category: Mapped[str | None] = mapped_column(String(100))
+    central_share: Mapped[float | None] = mapped_column(Float)
+    projected_change: Mapped[float] = mapped_column(Float)
+    figure_table: Mapped[str] = mapped_column(String(200))
+    geography: Mapped[str] = mapped_column(String(100), default="Global")
+    sector: Mapped[str | None] = mapped_column(String(150))
+    mapping_method: Mapped[str | None] = mapped_column(String(80))
+    mapping_confidence: Mapped[float | None] = mapped_column(Float)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    __table_args__ = (UniqueConstraint("edition_id", "source_label", "figure_table", "geography", "sector"),)
+
 class TrendScore(Base):
     __tablename__ = "trend_scores"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)

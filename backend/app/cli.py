@@ -5,6 +5,7 @@ from app.services.occupation_mapping import sync_rome_esco_crosswalk
 from app.services.seed import seed_database
 from app.services.search import rebuild_search_index
 from app.services.data_quality import recompute_data_quality
+from app.services.future_of_jobs import import_wef_edition
 from app.services.trend_analytics import recompute_skill_trends
 
 def main():
@@ -14,6 +15,7 @@ def main():
     sub.add_parser("reindex-search")
     sub.add_parser("recompute-trends")
     sub.add_parser("recompute-quality")
+    wef=sub.add_parser("import-wef"); wef.add_argument("path"); wef.add_argument("--report-title"); wef.add_argument("--edition"); wef.add_argument("--publication-year",type=int); wef.add_argument("--horizon-year",type=int); wef.add_argument("--source-url")
     sync=sub.add_parser("sync"); sync.add_argument("source",choices=["esco","eurostat","france_travail"]); sync.add_argument("--query",default="data"); sync.add_argument("--limit",type=int,default=50); sync.add_argument("--max-relation-skills",type=int,default=None); sync.add_argument("--dataset",default=None); sync.add_argument("--profile",default=None); sync.add_argument("--territory",default="FR"); sync.add_argument("--geography",default="FR"); sync.add_argument("--since",type=int,default=2021); sync.add_argument("--rome-code",default=None); sync.add_argument("--endpoint",default="indicateurs")
     eurostat=sub.add_parser("sync-eurostat"); eurostat.add_argument("--profiles",default="all"); eurostat.add_argument("--geography",default="FR"); eurostat.add_argument("--since",type=int,default=2021)
     crosswalk=sub.add_parser("sync-rome-esco"); crosswalk.add_argument("--url",default=None)
@@ -25,6 +27,8 @@ def main():
             result=recompute_skill_trends(db); print(f"TrendScore {result['method_version']}: {result['scores_written']} scores, {result['skills_scored']}/{result['skills_evaluated']} compétences")
         elif args.command=="recompute-quality":
             result=recompute_data_quality(db); print(f"ConfidenceScore {result['method_version']}: {result['scores_written']} groupes, {result['observations_evaluated']} observations")
+        elif args.command=="import-wef":
+            result=import_wef_edition(db,args.path,args.report_title,args.edition,args.publication_year,args.horizon_year,args.source_url); print(f"WEF {result['edition']}: {result['stored']} projections, {result['resolved']} rapprochées")
         elif args.command=="sync-rome-esco":
             result=asyncio.run(sync_rome_esco_crosswalk(db,args.url)); print(f"Crosswalk ROME–ESCO: {result['stored']} correspondances actives, {result['skipped_missing_esco']} sans métier ESCO local")
         elif args.command=="sync-eurostat":

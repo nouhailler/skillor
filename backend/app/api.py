@@ -8,6 +8,7 @@ from app.db import get_db
 from app.eurostat_catalog import eurostat_catalog
 from app.services.dashboard import build_dashboard
 from app.services.data_quality import recompute_data_quality
+from app.services.future_of_jobs import future_of_jobs, import_wef_edition
 from app.services.ingestion import run_eurostat_catalog_import, run_import
 from app.services.occupation_mapping import sync_rome_esco_crosswalk
 from app.services.occupation_profile import build_occupation_profile
@@ -131,6 +132,18 @@ def skill_trends(limit: int=Query(20,ge=1,le=100), db: Session=Depends(get_db)):
             components={"growth":t.growth,"acceleration":t.acceleration,"volume":t.volume,
                         "geographic_spread":t.geographic_spread,"source_confidence":t.source_confidence},
             calculation=t.calculation_metadata) for t,n in rows]
+
+@router.get("/future-of-jobs")
+def prospective_comparison(edition: str | None=None, db: Session=Depends(get_db)):
+    return future_of_jobs(db,edition)
+
+@router.post("/imports/wef")
+def import_wef(path: str, report_title: str | None=None, edition: str | None=None,
+               publication_year: int | None=None, horizon_year: int | None=None, source_url: str | None=None,
+               x_admin_key: str | None=Header(None), db: Session=Depends(get_db)):
+    if not settings.admin_api_key or x_admin_key != settings.admin_api_key: raise HTTPException(403,"Clé d'administration requise")
+    try: return import_wef_edition(db,path,report_title,edition,publication_year,horizon_year,source_url)
+    except ValueError as exc: raise HTTPException(422,str(exc)) from exc
 
 @router.post("/trends/recompute")
 def recompute_trends(x_admin_key: str | None=Header(None), db: Session=Depends(get_db)):

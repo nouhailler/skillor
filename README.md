@@ -114,6 +114,24 @@ docker compose exec api python -m app.cli recompute-quality
 curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" http://localhost:8000/api/v1/quality/recompute
 ```
 
+Le moteur Future of Jobs stocke les éditions prospectives séparément des
+observations de marché. L'import accepte un JSON ou CSV local dont l'utilisation
+et la licence ont été vérifiées par l'opérateur. Pour JSON, les métadonnées
+`report_title`, `edition`, `publication_year`, `horizon_year` et `source_url`
+accompagnent un tableau `projections`. Chaque projection fournit au minimum
+`skill`, `projected_change` et `figure_table`; `central_share`, `category`,
+`geography` et `sector` sont optionnels. Le fichier brut est archivé, les
+libellés sont rapprochés des compétences ESCO avec une confiance explicite et
+les éditions peuvent être comparées dans l'interface.
+
+```bash
+docker compose exec api python -m app.cli import-wef /data/raw/wef-2025.json
+```
+
+Le dépôt n'embarque aucune valeur WEF recopiée ni projection de démonstration.
+L'interface reste vide tant qu'une édition autorisée et sourcée n'a pas été
+importée.
+
 Eurostat est organisé en six profils configurables dans
 `backend/app/eurostat_catalog.py` : chômage, emploi, rémunérations, éducation,
 emploi par secteur NACE et chômage régional NUTS 2. Chaque profil définit son
@@ -171,6 +189,7 @@ docker compose run --rm api pytest
 - `GET /api/v1/skills`
 - `GET /api/v1/skills/{id}`
 - `GET /api/v1/trends/skills`
+- `GET /api/v1/future-of-jobs?edition=2025`
 - `POST /api/v1/trends/recompute` (clé d'administration)
 - `GET /api/v1/sources`
 - `GET /api/v1/quality/scores`
@@ -182,6 +201,7 @@ docker compose run --rm api pytest
 - `GET /api/v1/eurostat/datasets`
 - `GET /api/v1/eurostat/indicators`
 - `POST /api/v1/imports/{source}` (clé d'administration)
+- `POST /api/v1/imports/wef` (clé d'administration)
 - `POST /api/v1/imports/france_travail/crosswalk` (clé d'administration)
 - `POST /api/v1/imports/eurostat/catalog` (clé d'administration)
 - `POST /api/v1/quality/recompute` (clé d'administration)
