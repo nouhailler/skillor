@@ -11,6 +11,7 @@ from app.services.ingestion import run_eurostat_catalog_import, run_import
 from app.services.occupation_mapping import sync_rome_esco_crosswalk
 from app.services.occupation_profile import build_occupation_profile
 from app.services.skill_profile import build_skill_profile
+from app.services.trend_analytics import recompute_skill_trends
 from app.services.search import ensure_search_index, search_entities, search_filters
 
 router = APIRouter(prefix="/api/v1")
@@ -74,7 +75,7 @@ def skill_catalog(q: str | None=None, skill_type: str | None=None, offset: int=Q
         for trend in trend_rows: trends.setdefault(trend.entity_id,trend)
     return [{"id":row.id,"canonical_name":row.canonical_name,"description":row.description,
              "skill_type":row.skill_type,"esco_uri":row.esco_uri,"occupation_count":len(row.occupations),
-             "trend":None if row.id not in trends else {"score":trends[row.id].score,"growth":trends[row.id].growth,
+             "trend":None if row.id not in trends else {"score":trends[row.id].score,"growth":trends[row.id].raw_growth if trends[row.id].raw_growth is not None else trends[row.id].growth,
                                                         "period":trends[row.id].period,"method_version":trends[row.id].method_version,
                                                         "is_official":False}} for row in skills]
 
@@ -124,7 +125,16 @@ def skill_detail(skill_id: str, db: Session=Depends(get_db)):
 @router.get("/trends/skills", response_model=list[schemas.TrendOut])
 def skill_trends(limit: int=Query(20,ge=1,le=100), db: Session=Depends(get_db)):
     rows=db.execute(select(models.TrendScore,models.Skill.canonical_name).join(models.Skill,models.Skill.id==models.TrendScore.entity_id).where(models.TrendScore.entity_type=="skill").order_by(models.TrendScore.score.desc()).limit(limit)).all()
-    return [schemas.TrendOut(entity_id=t.entity_id,name=n,score=t.score,growth=t.growth,period=t.period,method_version=t.method_version,is_official=False) for t,n in rows]
+    return [schemas.TrendOut(entity_id=t.entity_id,name=n,score=t.score,growth=t.raw_growth if t.raw_growth is not None else t.growth,
+            period=t.period,method_version=t.method_version,is_official=False,
+            components={"growth":t.growth,"acceleration":t.acceleration,"volume":t.volume,
+                        "geographic_spread":t.geographic_spread,"source_confidence":t.source_confidence},
+            calculation=t.calculation_metadata) for t,n in rows]
+
+@router.post("/trends/recompute")
+def recompute_trends(x_admin_key: str | None=Header(None), db: Session=Depends(get_db)):
+    if not settings.admin_api_key or x_admin_key != settings.admin_api_key: raise HTTPException(403,"Clé d'administration requise")
+    return recompute_skill_trends(db)
 
 @router.get("/sources")
 def sources(db: Session=Depends(get_db)):

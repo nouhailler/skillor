@@ -15,3 +15,5 @@ class ImportOut(BaseModel):
 
 class TrendOut(BaseModel):
     entity_id: str; name: str; score: float; growth: float; period: date; method_version: str; is_official: bool
+    components: dict[str, float] | None = None
+    calculation: dict | None = None

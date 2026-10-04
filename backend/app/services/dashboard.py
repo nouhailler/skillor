@@ -32,7 +32,7 @@ def _latest_trends(db: Session, entity_type: str, limit: int = 5) -> list[dict]:
             "id": trend.entity_id,
             "name": name,
             "score": trend.score,
-            "growth": trend.growth,
+            "growth": trend.raw_growth if trend.raw_growth is not None else trend.growth,
             "period": trend.period,
             "is_official": False,
             "method_version": trend.method_version,

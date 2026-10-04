@@ -147,6 +147,8 @@ class TrendScore(Base):
     volume: Mapped[float] = mapped_column(Float)
     geographic_spread: Mapped[float] = mapped_column(Float)
     source_confidence: Mapped[float] = mapped_column(Float)
+    raw_growth: Mapped[float | None] = mapped_column(Float)
+    calculation_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     method_version: Mapped[str] = mapped_column(String(20), default="1.0")
     is_official: Mapped[bool] = mapped_column(Boolean, default=False)
     __table_args__ = (UniqueConstraint("entity_type", "entity_id", "period", "method_version"),)

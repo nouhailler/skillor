@@ -81,6 +81,24 @@ L'index est entretenu pendant les imports et peut être reconstruit avec :
 docker compose exec api python -m app.cli reindex-search
 ```
 
+Le pipeline TrendScore calcule ses composantes à partir des séries historiques.
+Il privilégie les mentions de compétences directement observées ; à défaut, il
+utilise les offres des métiers ESCO liés, pondérées par le poids et la confiance
+de la relation. Deux périodes au minimum sont exigées. La croissance et
+l'accélération sont normalisées autour de 50, le volume est normalisé de façon
+logarithmique, la diffusion géographique vient des territoires observés et la
+confiance conserve le statut de la source. Chaque score stocke le signal choisi,
+les volumes avant/après, le nombre d'observations, de sources et de territoires.
+Le résultat reste toujours marqué `is_official = false`.
+
+Le recalcul est automatique après un import France Travail et peut aussi être
+lancé explicitement :
+
+```bash
+docker compose exec api python -m app.cli recompute-trends
+curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" http://localhost:8000/api/v1/trends/recompute
+```
+
 Eurostat est organisé en six profils configurables dans
 `backend/app/eurostat_catalog.py` : chômage, emploi, rémunérations, éducation,
 emploi par secteur NACE et chômage régional NUTS 2. Chaque profil définit son
@@ -138,6 +156,7 @@ docker compose run --rm api pytest
 - `GET /api/v1/skills`
 - `GET /api/v1/skills/{id}`
 - `GET /api/v1/trends/skills`
+- `POST /api/v1/trends/recompute` (clé d'administration)
 - `GET /api/v1/sources`
 - `GET /api/v1/catalog/occupations`
 - `GET /api/v1/catalog/skills`
