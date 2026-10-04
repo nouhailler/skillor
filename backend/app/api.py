@@ -9,6 +9,8 @@ from app.eurostat_catalog import eurostat_catalog
 from app.services.dashboard import build_dashboard
 from app.services.ingestion import run_eurostat_catalog_import, run_import
 from app.services.occupation_mapping import sync_rome_esco_crosswalk
+from app.services.occupation_profile import build_occupation_profile
+from app.services.skill_profile import build_skill_profile
 from app.services.search import ensure_search_index, search_entities, search_filters
 
 router = APIRouter(prefix="/api/v1")
@@ -102,10 +104,9 @@ def occupations(q: str | None=None, sector: str | None=None, offset: int=Query(0
 
 @router.get("/occupations/{occupation_id}")
 def occupation_detail(occupation_id: str, db: Session=Depends(get_db)):
-    obj=db.scalar(select(models.Occupation).options(selectinload(models.Occupation.skills).selectinload(models.OccupationSkill.skill),selectinload(models.Occupation.external_mappings)).where(models.Occupation.id==occupation_id))
-    if not obj: raise HTTPException(404,"Métier introuvable")
-    observations=db.scalars(select(models.Observation).where(models.Observation.occupation_id==obj.id).order_by(models.Observation.period)).all()
-    return {"id":obj.id,"canonical_name":obj.canonical_name,"description":obj.description,"sector":obj.sector,"esco_uri":obj.esco_uri,"isco_code":obj.isco_code,"aliases":obj.aliases,"multilingual_labels":obj.multilingual_labels,"multilingual_descriptions":obj.multilingual_descriptions,"external_mappings":[{"system":m.source_system,"code":m.external_code,"label":m.external_label,"relation":m.mapping_relation,"method":m.mapping_method,"confidence":m.confidence_score} for m in obj.external_mappings],"skills":[{"id":rel.skill.id,"name":rel.skill.canonical_name,"relationship":rel.relationship_type,"weight":rel.weight,"skill_type":rel.skill.skill_type,"confidence":rel.confidence_score} for rel in obj.skills],"market":[{"metric":o.metric,"value":o.value,"unit":o.unit,"period":o.period,"geography_code":o.geography_code,"geography_name":o.geography_name,"dimensions":o.metadata_json.get("dimensions",{}),"resolution":o.metadata_json.get("occupation_resolution"),"is_official":o.metadata_json.get("is_official",True)} for o in observations]}
+    profile=build_occupation_profile(db,occupation_id)
+    if not profile: raise HTTPException(404,"Métier introuvable")
+    return profile
 
 @router.get("/skills", response_model=list[schemas.SkillOut])
 def skills(q: str | None=None, skill_type: str | None=None, offset: int=Query(0,ge=0), limit: int=Query(30,ge=1,le=100), db: Session=Depends(get_db)):
@@ -116,10 +117,9 @@ def skills(q: str | None=None, skill_type: str | None=None, offset: int=Query(0,
 
 @router.get("/skills/{skill_id}")
 def skill_detail(skill_id: str, db: Session=Depends(get_db)):
-    obj=db.scalar(select(models.Skill).options(selectinload(models.Skill.occupations).selectinload(models.OccupationSkill.occupation)).where(models.Skill.id==skill_id))
-    if not obj: raise HTTPException(404,"Compétence introuvable")
-    trend=db.scalar(select(models.TrendScore).where(models.TrendScore.entity_id==obj.id).order_by(models.TrendScore.period.desc()))
-    return {"id":obj.id,"canonical_name":obj.canonical_name,"description":obj.description,"skill_type":obj.skill_type,"esco_uri":obj.esco_uri,"aliases":obj.aliases,"multilingual_labels":obj.multilingual_labels,"multilingual_descriptions":obj.multilingual_descriptions,"occupations":[{"id":rel.occupation.id,"name":rel.occupation.canonical_name,"relationship":rel.relationship_type,"weight":rel.weight} for rel in obj.occupations],"trend":None if not trend else {"score":trend.score,"growth":trend.growth,"method_version":trend.method_version,"is_official":False}}
+    profile=build_skill_profile(db,skill_id)
+    if not profile: raise HTTPException(404,"Compétence introuvable")
+    return profile
 
 @router.get("/trends/skills", response_model=list[schemas.TrendOut])
 def skill_trends(limit: int=Query(20,ge=1,le=100), db: Session=Depends(get_db)):

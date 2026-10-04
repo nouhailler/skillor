@@ -95,6 +95,24 @@ les séries territoriales et la provenance depuis FastAPI. Une API indisponible
 ou une base vide produit un état d'erreur ou un état vide explicite, jamais des
 chiffres simulés. Les exports CSV sont construits à partir des réponses API.
 
+Chaque métier ouvre désormais une page dynamique et partageable via
+`#occupation/{id}`. Elle rassemble les informations de référentiel, les
+compétences essentielles et optionnelles, les agrégats de marché, les dernières
+valeurs géographiques, les séries temporelles et la provenance détaillée. La
+réponse `GET /api/v1/occupations/{id}` conserve ses champs historiques et expose
+en plus `market_summary`, `geographies`, `timeline` et `sources`. Les métriques
+de volume sont additionnées ; les taux, scores et rémunérations sont moyennés
+sans conversion implicite d'unité. Les observations brutes restent consultables
+dans la fiche pour permettre l'audit des agrégats.
+
+Les compétences disposent elles aussi d'une page partageable via `#skill/{id}`.
+Elle croise les métiers liés avec leurs observations réelles pour exposer les
+secteurs, régions, offres, salaires et indicateurs de tension disponibles. Les
+compétences voisines sont déduites des métiers partagés ; la tendance conserve
+son historique et reste explicitement identifiée comme un calcul interne. Une
+section de provenance indique, pour chaque source, le nombre d'observations et
+de relations mobilisées.
+
 Le dashboard agrège les observations réellement importées : offres sur les
 douze dernières périodes mensuelles, pays et régions déduits des niveaux
 géographiques, salaires conservés dans leur unité source, tension observée ou

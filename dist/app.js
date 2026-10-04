@@ -11,10 +11,17 @@
     const suffix = {'EUR/year':' €/an','EUR/month':' €/mois','EUR/hour':' €/h','percent':' %','score_0_100':' / 100','offer':' offres'}[unit] ?? (unit ? ` ${unit}` : '');
     return `${formatNumber(value)}${suffix}`;
   };
+  const metricLabels = {job_offers:'Offres d’emploi',job_seekers:'Demandeurs d’emploi',hires:'Embauches',skill_offer_mentions:'Mentions de compétences',employment_by_sector:'Emploi par secteur',salary_average:'Salaire moyen',salary_min:'Salaire minimum',salary_max:'Salaire maximum',recruitment_difficulty:'Difficulté de recrutement',tension_index:'Indice de tension',tension_score:'Indice de tension',growth:'Croissance',unemployment_rate:'Taux de chômage',employment_rate:'Taux d’emploi'};
+  const metricLabel = value => metricLabels[value] || String(value || '').replaceAll('_',' ');
+  const relationshipLabel = value => ({essential:'Essentielle',optional:'Optionnelle'}[value] || value || 'Relation');
+  const flattenLocalized = value => Object.entries(value || {}).flatMap(([language,terms]) => (Array.isArray(terms)?terms:[terms]).filter(Boolean).map(term=>({language,term})));
   const metricValue = (occupation, metric) => occupation.market?.[metric]?.value ?? null;
   const empty = message => `<div class="state">${escapeHtml(message)}</div>`;
   const errorState = message => `<div class="state error">${escapeHtml(message)}</div>`;
   const iconBrief = '<svg class="icon"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V4h8v3"/></svg>';
+  let occupationReturnView='occupations';
+  let skillReturnView='skills';
+  let currentOccupation=null;
 
   async function apiGet(path) {
     const response = await fetch(API_URL + path, {headers:{Accept:'application/json'}});
@@ -139,14 +146,92 @@
     $('#sourceStatus').innerHTML=`<b><span class="dot" style="background:${latest?'var(--mint)':'var(--amber)'}"></span>${latest?'Sources connectées':'Sources configurées'}</b>${latest?'Dernier import réussi<br>'+formatDate(latest):'Aucun import réel enregistré'}`;
   }
 
-  async function openOccupation(id) {
-    openModal('Chargement…',empty('Lecture de la fiche métier…'));
-    try{const row=await apiGet(`/api/v1/occupations/${encodeURIComponent(id)}`);openModal(escapeHtml(row.canonical_name),`<p class="subtitle">${escapeHtml(row.description||'Description non disponible.')}</p><div class="fact"><span>ESCO</span><b>${escapeHtml(row.esco_uri||'—')}</b></div><div class="fact"><span>ISCO</span><b>${escapeHtml(row.isco_code||'—')}</b></div><h3 style="margin-top:20px">Compétences</h3><div class="chips" style="margin-top:10px">${row.skills.map(skill=>`<span class="chip">${escapeHtml(skill.name)} · ${escapeHtml(skill.relationship)}</span>`).join('')||'Aucune relation importée'}</div><h3 style="margin-top:20px">Observations de marché</h3>${row.market.length?`<table class="data-table"><tbody>${row.market.map(item=>`<tr><td>${escapeHtml(item.metric)}</td><td>${formatNumber(item.value)} ${escapeHtml(item.unit)}</td><td>${escapeHtml(item.geography_name)}</td><td>${formatDate(item.period)}</td></tr>`).join('')}</tbody></table>`:empty('Aucune observation rattachée.')}`)}catch(error){openModal('Erreur',errorState(error.message))}
+  function profileTable(headers,rows,emptyMessage) {
+    return rows.length?`<div class="profile-table-wrap"><table class="data-table"><thead><tr>${headers.map(item=>`<th>${escapeHtml(item)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`:empty(emptyMessage);
   }
 
-  async function openSkill(id) {
-    openModal('Chargement…',empty('Lecture de la fiche compétence…'));
-    try{const row=await apiGet(`/api/v1/skills/${encodeURIComponent(id)}`);openModal(escapeHtml(row.canonical_name),`<p class="subtitle">${escapeHtml(row.description||'Description non disponible.')}</p><div class="fact"><span>Type</span><b>${escapeHtml(row.skill_type||'—')}</b></div><div class="fact"><span>URI ESCO</span><b>${escapeHtml(row.esco_uri||'—')}</b></div><h3 style="margin-top:20px">Métiers liés</h3><div class="chips" style="margin-top:10px">${row.occupations.map(item=>`<span class="chip">${escapeHtml(item.name)} · ${escapeHtml(item.relationship)}</span>`).join('')||'Aucun métier lié'}</div>`)}catch(error){openModal('Erreur',errorState(error.message))}
+  function renderOccupationTimeline(profile,key) {
+    const target=$('#occupationTimelineChart');
+    if(!target)return;
+    const [metric,unit]=String(key||'').split('|');
+    const points=profile.timeline.filter(item=>item.metric===metric&&item.unit===unit).sort((a,b)=>String(a.period).localeCompare(String(b.period)));
+    if(!points.length){target.innerHTML=empty('Aucune série temporelle disponible.');return}
+    const width=900,height=210,pad=34,values=points.map(item=>item.value),min=Math.min(...values),max=Math.max(...values),span=max-min||1;
+    const coordinates=points.map((item,index)=>({x:pad+index*(width-2*pad)/Math.max(1,points.length-1),y:height-pad-(item.value-min)*(height-2*pad)/span,item}));
+    target.innerHTML=`<svg class="line-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><line x1="${pad}" y1="${height-pad}" x2="${width-pad}" y2="${height-pad}" stroke="var(--line)"/><polyline class="trend-line" points="${coordinates.map(point=>`${point.x},${point.y}`).join(' ')}"/>${coordinates.map(point=>`<circle class="point" cx="${point.x}" cy="${point.y}" r="4"><title>${escapeHtml(formatDate(point.item.period))} · ${escapeHtml(formatMetric(point.item.value,unit))}</title></circle>`).join('')}</svg><div class="provenance"><span>${formatDate(points[0].period)} → ${formatDate(points.at(-1).period)}</span><span>${points.length} période${points.length>1?'s':''} · ${escapeHtml(points[0].aggregation)}</span></div>`;
+  }
+
+  function renderOccupationProfile(row) {
+    currentOccupation=row;
+    const aliases=flattenLocalized(row.aliases),labels=flattenLocalized(row.multilingual_labels);
+    const marketRows=row.market_summary.map(item=>`<tr><td><b>${escapeHtml(metricLabel(item.metric))}</b><small style="display:block;color:var(--muted)">${escapeHtml(item.metric)}</small></td><td>${formatMetric(item.value,item.unit)}</td><td>${escapeHtml(item.aggregation)}</td><td>${formatDate(item.period_from)} → ${formatDate(item.period_to)}</td><td>${item.is_official?'Source officielle':'Calcul interne'}</td></tr>`);
+    const geographyRows=row.geographies.map(item=>`<tr><td><b>${escapeHtml(item.geography_name)}</b><small style="display:block;color:var(--muted)">${escapeHtml(item.geography_code)} · ${escapeHtml(item.geography_level)}</small></td><td>${escapeHtml(metricLabel(item.metric))}</td><td>${formatMetric(item.value,item.unit)}</td><td>${formatDate(item.period)}</td></tr>`);
+    const sourceRows=row.sources.map(item=>`<tr><td><b>${escapeHtml(item.source_name)}</b><small style="display:block;color:var(--muted)">${escapeHtml(item.kind==='reference'?'Référentiel':'Observations')}</small></td><td>${escapeHtml(item.dataset_name||item.dataset_code||'Référentiel principal')}</td><td>${item.observation_count||0} observation${item.observation_count===1?'':'s'}${item.relationship_count?` · ${item.relationship_count} relation${item.relationship_count===1?'':'s'}`:''}</td><td>${item.period_from?`${formatDate(item.period_from)} → ${formatDate(item.period_to)}`:'—'}</td><td>${formatDate(item.last_imported_at)}</td></tr>`);
+    const timelineKeys=[...new Map(row.timeline.map(item=>[`${item.metric}|${item.unit}`,item])).entries()];
+    const timelineOptions=timelineKeys.map(([key,item])=>`<option value="${escapeHtml(key)}">${escapeHtml(metricLabel(item.metric))} · ${escapeHtml(item.unit)}</option>`).join('');
+    const mappings=(row.external_mappings||[]).map(item=>`<div class="fact"><span>${escapeHtml(item.system)} · ${escapeHtml(item.relation)}</span><b>${escapeHtml(item.code)}${item.label?` — ${escapeHtml(item.label)}`:''}</b></div>`).join('');
+    $('#occupation-detail').innerHTML=`
+      <button class="secondary profile-back" data-profile-back>← Retour aux métiers</button>
+      <header class="profile-hero"><div class="profile-hero-top"><div><div class="eyebrow">Fiche métier dynamique</div><h1>${escapeHtml(row.canonical_name)}</h1><p>${escapeHtml(row.description||'Description non disponible dans le référentiel importé.')}</p></div><div class="profile-meta"><span class="tag">${escapeHtml(row.sector||'Secteur non renseigné')}</span><span class="tag">ISCO ${escapeHtml(row.isco_code||'—')}</span></div></div></header>
+      <nav class="profile-tabs" aria-label="Sections de la fiche"><button data-profile-section="profile-information">Informations</button><button data-profile-section="profile-skills">Compétences</button><button data-profile-section="profile-market">Marché</button><button data-profile-section="profile-geography">Géographie</button><button data-profile-section="profile-timeline">Temporalité</button><button data-profile-section="profile-sources">Sources</button></nav>
+      <article class="card profile-section" id="profile-information"><div class="card-head"><div><div class="eyebrow">01 · Informations</div><h2>Référentiels et identifiants</h2></div></div><div class="profile-grid"><div><div class="fact"><span>Secteur</span><b>${escapeHtml(row.sector||'—')}</b></div><div class="fact"><span>Code ISCO</span><b>${escapeHtml(row.isco_code||'—')}</b></div><div class="fact"><span>URI ESCO</span><b class="profile-code">${escapeHtml(row.esco_uri||'—')}</b></div><div class="fact"><span>Dernière mise à jour</span><b>${formatDate(row.updated_at)}</b></div>${mappings}</div><div><h3>Alias et libellés multilingues</h3><div class="chips" style="margin-top:12px">${[...aliases,...labels].map(item=>`<span class="chip">${escapeHtml(item.language)} · ${escapeHtml(item.term)}</span>`).join('')||'<span class="empty-value">Aucun alias importé</span>'}</div></div></div></article>
+      <article class="card profile-section" id="profile-skills"><div class="card-head"><div><div class="eyebrow">02 · Compétences</div><h2>${row.skills.length} compétence${row.skills.length===1?'':'s'} reliée${row.skills.length===1?'':'s'}</h2></div><span class="subtitle">Relations essentielles et optionnelles</span></div><div class="profile-skill-grid">${row.skills.map(skill=>`<div class="profile-skill ${escapeHtml(skill.relationship)}"><span class="tag">${escapeHtml(relationshipLabel(skill.relationship))}</span><h3 style="margin-top:10px">${escapeHtml(skill.name)}</h3><p>${escapeHtml(skill.description||'Description non disponible.')}</p><div class="profile-meta"><span class="chip">${escapeHtml(skill.skill_type||'Type inconnu')}</span>${skill.source?`<span class="chip">${escapeHtml(skill.source)}</span>`:''}${skill.confidence!=null?`<span class="chip">Confiance ${formatNumber(skill.confidence)}</span>`:''}</div></div>`).join('')||empty('Aucune relation métier–compétence importée.')}</div></article>
+      <article class="card profile-section" id="profile-market"><div class="card-head"><div><div class="eyebrow">03 · Marché</div><h2>Indicateurs disponibles</h2></div><span class="subtitle">Les unités source ne sont pas converties</span></div><div class="profile-stat-grid">${row.market_summary.slice(0,6).map(item=>`<div class="profile-stat"><small>${escapeHtml(metricLabel(item.metric))}</small><b>${formatMetric(item.value,item.unit)}</b><small>${item.observation_count} observation${item.observation_count===1?'':'s'} · ${escapeHtml(item.aggregation)}</small></div>`).join('')||empty('Aucun indicateur de marché rattaché.')}</div>${profileTable(['Indicateur','Valeur','Agrégation','Période','Statut'],marketRows,'Aucun indicateur de marché rattaché.')}</article>
+      <article class="card profile-section" id="profile-geography"><div class="card-head"><div><div class="eyebrow">04 · Géographie</div><h2>Dernières valeurs par territoire</h2></div></div>${profileTable(['Territoire','Indicateur','Valeur','Période'],geographyRows,'Aucune ventilation géographique disponible.')}</article>
+      <article class="card profile-section" id="profile-timeline"><div class="card-head"><div><div class="eyebrow">05 · Temporalité</div><h2>Évolution observée</h2></div>${timelineKeys.length?`<select class="filter" id="occupationTimelineMetric">${timelineOptions}</select>`:''}</div><div class="profile-chart" id="occupationTimelineChart">${empty('Aucune série temporelle disponible.')}</div></article>
+      <article class="card profile-section" id="profile-sources"><div class="card-head"><div><div class="eyebrow">06 · Sources</div><h2>Provenance et fraîcheur</h2></div><span class="subtitle">Traçabilité des observations et relations</span></div>${profileTable(['Source','Dataset','Couverture','Période','Import'],sourceRows,'Aucune provenance enregistrée.')}<details class="profile-raw" style="margin-top:18px"><summary>Voir les ${row.market.length} observations brutes</summary>${profileTable(['Métrique','Valeur','Territoire','Période','Source'],row.market.map(item=>`<tr><td>${escapeHtml(item.metric)}</td><td>${formatMetric(item.value,item.unit)}</td><td>${escapeHtml(item.geography_name)} (${escapeHtml(item.geography_code)})</td><td>${formatDate(item.period)}</td><td>${escapeHtml(item.source||'—')}${item.dataset?` · ${escapeHtml(item.dataset)}`:''}</td></tr>`),'Aucune observation brute.')}</details></article>`;
+    $('[data-profile-back]').onclick=closeOccupationProfile;
+    document.querySelectorAll('[data-profile-section]').forEach(button=>button.onclick=()=>document.getElementById(button.dataset.profileSection)?.scrollIntoView({behavior:'smooth'}));
+    const selector=$('#occupationTimelineMetric');if(selector){selector.onchange=()=>renderOccupationTimeline(row,selector.value);renderOccupationTimeline(row,selector.value)}
+  }
+
+  async function openOccupation(id,{push=true}={}) {
+    const active=document.querySelector('.view.active')?.id;
+    if(active&&!['occupation-detail','skill-detail'].includes(active))occupationReturnView=active;
+    $('#occupation-detail').innerHTML=empty('Lecture de la fiche métier…');showView('occupation-detail');
+    if(push&&location.hash!==`#occupation/${encodeURIComponent(id)}`)history.pushState({occupation:id},'',`#occupation/${encodeURIComponent(id)}`);
+    try{renderOccupationProfile(await apiGet(`/api/v1/occupations/${encodeURIComponent(id)}`))}catch(error){$('#occupation-detail').innerHTML=`<button class="secondary profile-back" data-profile-back>← Retour</button>${errorState(`Fiche indisponible : ${error.message}`)}`;$('[data-profile-back]').onclick=closeOccupationProfile}
+  }
+
+  function closeOccupationProfile(){
+    currentOccupation=null;
+    if(location.hash.startsWith('#occupation/')&&history.state?.occupation){history.back();return}
+    history.replaceState(null,'',location.pathname+location.search);showView(occupationReturnView);
+  }
+
+  function renderSkillProfile(row) {
+    const aliases=[...flattenLocalized(row.aliases),...flattenLocalized(row.multilingual_labels)];
+    const marketRows=row.market_summary.map(item=>`<tr><td><b>${escapeHtml(metricLabel(item.metric))}</b></td><td>${formatMetric(item.value,item.unit)}</td><td>${escapeHtml(item.aggregation)}</td><td>${formatDate(item.period_from)} → ${formatDate(item.period_to)}</td><td>${item.is_official?'Source officielle':'Calcul interne'}</td></tr>`);
+    const occupationRows=row.occupations.map(item=>`<tr><td><button class="link-btn" data-related-occupation="${escapeHtml(item.id)}">${escapeHtml(item.name)}</button></td><td>${escapeHtml(item.sector||'—')}</td><td>${escapeHtml(relationshipLabel(item.relationship))}</td><td>${formatMetric(item.offers,'offer')}</td><td>${item.salary==null?'—':formatMetric(item.salary,'EUR/year')}</td><td>${item.tension==null?'—':formatNumber(item.tension)}</td></tr>`);
+    const regionRows=row.regions.map(item=>`<tr><td>${escapeHtml(item.name)}<small style="display:block;color:var(--muted)">${escapeHtml(item.code)} · ${escapeHtml(item.level)}</small></td><td>${escapeHtml(metricLabel(item.metric))}</td><td>${formatMetric(item.value,item.unit)}</td><td>${formatDate(item.period)}</td></tr>`);
+    $('#skill-detail').innerHTML=`
+      <button class="secondary profile-back" data-skill-back>← Retour aux compétences</button>
+      <header class="profile-hero"><div class="profile-hero-top"><div><div class="eyebrow">Fiche compétence dynamique</div><h1>${escapeHtml(row.canonical_name)}</h1><p>${escapeHtml(row.description||'Description non disponible dans le référentiel importé.')}</p></div><div class="profile-meta"><span class="tag">${escapeHtml(row.skill_type||'Type non renseigné')}</span><span class="tag">${row.occupations.length} métier${row.occupations.length===1?'':'s'}</span></div></div></header>
+      <nav class="profile-tabs" aria-label="Sections de la fiche"><button data-profile-section="skill-information">Informations</button><button data-profile-section="skill-trend">Tendance</button><button data-profile-section="skill-occupations">Métiers</button><button data-profile-section="skill-sectors">Secteurs</button><button data-profile-section="skill-regions">Régions</button><button data-profile-section="skill-market">Marché</button><button data-profile-section="skill-neighbors">Compétences voisines</button><button data-profile-section="skill-sources">Sources</button></nav>
+      <article class="card profile-section" id="skill-information"><div class="eyebrow">01 · Informations</div><h2>Référentiel ESCO</h2><div class="fact"><span>Type</span><b>${escapeHtml(row.skill_type||'—')}</b></div><div class="fact"><span>URI ESCO</span><b class="profile-code">${escapeHtml(row.esco_uri||'—')}</b></div><div class="fact"><span>Mise à jour</span><b>${formatDate(row.updated_at)}</b></div><div class="chips" style="margin-top:14px">${aliases.map(item=>`<span class="chip">${escapeHtml(item.language)} · ${escapeHtml(item.term)}</span>`).join('')||'<span class="empty-value">Aucun alias importé</span>'}</div></article>
+      <article class="card profile-section" id="skill-trend"><div class="card-head"><div><div class="eyebrow">02 · Tendance</div><h2>TrendScore interne</h2></div><span class="subtitle">Calcul distinct des données officielles</span></div><div class="profile-stat-grid">${row.trend?`<div class="profile-stat"><small>Score</small><b>${formatNumber(row.trend.score)} / 100</b><small>méthode v${escapeHtml(row.trend.method_version)}</small></div><div class="profile-stat"><small>Croissance</small><b>${row.trend.growth>=0?'+':''}${formatNumber(row.trend.growth)} %</b><small>dernière période calculée</small></div><div class="profile-stat"><small>Historique</small><b>${row.trends.length}</b><small>période${row.trends.length===1?'':'s'} calculée${row.trends.length===1?'':'s'}</small></div>`:empty('Aucun TrendScore calculé.')}</div>${profileTable(['Période','Score','Croissance','Méthode'],row.trends.map(item=>`<tr><td>${formatDate(item.period)}</td><td>${formatNumber(item.score)} / 100</td><td>${item.growth>=0?'+':''}${formatNumber(item.growth)} %</td><td>v${escapeHtml(item.method_version)} · interne</td></tr>`),'Aucun historique de tendance.')}</article>
+      <article class="card profile-section" id="skill-occupations"><div class="eyebrow">03 · Métiers</div><h2>Métiers associés</h2>${profileTable(['Métier','Secteur','Relation','Offres','Salaire','Tension'],occupationRows,'Aucun métier associé.')}</article>
+      <article class="card profile-section" id="skill-sectors"><div class="eyebrow">04 · Secteurs</div><h2>Diffusion sectorielle</h2><div class="profile-stat-grid" style="margin-top:14px">${row.sectors.map(item=>`<div class="profile-stat"><small>${escapeHtml(item.name)}</small><b>${item.occupation_count} métier${item.occupation_count===1?'':'s'}</b><small>${formatMetric(item.offers,'offer')} rattachées</small></div>`).join('')||empty('Aucun secteur déduit des métiers liés.')}</div></article>
+      <article class="card profile-section" id="skill-regions"><div class="eyebrow">05 · Régions</div><h2>Dernières valeurs territoriales</h2>${profileTable(['Région','Indicateur','Valeur','Période'],regionRows,'Aucune donnée régionale rattachée aux métiers associés.')}</article>
+      <article class="card profile-section" id="skill-market"><div class="eyebrow">06 · Offres, salaires et tension</div><h2>Indicateurs de marché</h2><div class="profile-stat-grid" style="margin-top:14px">${row.market_summary.slice(0,6).map(item=>`<div class="profile-stat"><small>${escapeHtml(metricLabel(item.metric))}</small><b>${formatMetric(item.value,item.unit)}</b><small>${item.observation_count} observation${item.observation_count===1?'':'s'}</small></div>`).join('')||empty('Aucun indicateur rattaché.')}</div>${profileTable(['Indicateur','Valeur','Agrégation','Période','Statut'],marketRows,'Aucun indicateur rattaché.')}</article>
+      <article class="card profile-section" id="skill-neighbors"><div class="eyebrow">07 · Compétences voisines</div><h2>Cooccurrences dans les métiers</h2><div class="profile-skill-grid" style="margin-top:14px">${row.neighbors.map(item=>`<button class="profile-skill" style="color:var(--text);text-align:left" data-related-skill="${escapeHtml(item.id)}"><span class="tag">${escapeHtml(item.skill_type||'Compétence')}</span><h3 style="margin-top:10px">${escapeHtml(item.name)}</h3><p>${item.shared_occupation_count} métier${item.shared_occupation_count===1?' partagé':'s partagés'}</p></button>`).join('')||empty('Aucune compétence voisine déduite.')}</div></article>
+      <article class="card profile-section" id="skill-sources"><div class="eyebrow">08 · Sources</div><h2>Provenance</h2>${profileTable(['Source','Observations','Relations','Métriques'],row.sources.map(item=>`<tr><td>${escapeHtml(item.source_name)}</td><td>${item.observation_count}</td><td>${item.relationship_count}</td><td>${item.metrics.map(metric=>escapeHtml(metricLabel(metric))).join(', ')||'Référentiel'}</td></tr>`),'Aucune provenance enregistrée.')}</article>`;
+    $('[data-skill-back]').onclick=closeSkillProfile;
+    document.querySelectorAll('[data-profile-section]').forEach(button=>button.onclick=()=>document.getElementById(button.dataset.profileSection)?.scrollIntoView({behavior:'smooth'}));
+    document.querySelectorAll('[data-related-occupation]').forEach(button=>button.onclick=()=>openOccupation(button.dataset.relatedOccupation));
+    document.querySelectorAll('[data-related-skill]').forEach(button=>button.onclick=()=>openSkill(button.dataset.relatedSkill));
+  }
+
+  async function openSkill(id,{push=true}={}) {
+    const active=document.querySelector('.view.active')?.id;if(active&&!['occupation-detail','skill-detail'].includes(active))skillReturnView=active;
+    $('#skill-detail').innerHTML=empty('Lecture de la fiche compétence…');showView('skill-detail');
+    if(push&&location.hash!==`#skill/${encodeURIComponent(id)}`)history.pushState({skill:id},'',`#skill/${encodeURIComponent(id)}`);
+    try{renderSkillProfile(await apiGet(`/api/v1/skills/${encodeURIComponent(id)}`))}catch(error){$('#skill-detail').innerHTML=`<button class="secondary profile-back" data-skill-back>← Retour</button>${errorState(`Fiche indisponible : ${error.message}`)}`;$('[data-skill-back]').onclick=closeSkillProfile}
+  }
+
+  function closeSkillProfile(){
+    if(location.hash.startsWith('#skill/')&&history.state?.skill){history.back();return}
+    history.replaceState(null,'',location.pathname+location.search);showView(skillReturnView);
   }
 
   function openModal(title,body){$('#modalTitle').innerHTML=`<h2>${title}</h2>`;$('#modalBody').innerHTML=body;$('#entityModal').classList.add('open')}
@@ -177,6 +262,10 @@
     };
     global.oninput=()=>{clearTimeout(globalTimer);globalTimer=setTimeout(runGlobalSearch,180)};
     document.addEventListener('click',event=>{if(!event.target.closest('.search'))results.classList.remove('show')});
+    document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>{
+      currentOccupation=null;
+      if(location.hash.startsWith('#occupation/')||location.hash.startsWith('#skill/'))history.replaceState(null,'',location.pathname+location.search);
+    }));
   }
 
   async function loadOccupations(query='',sector='') {
@@ -196,6 +285,10 @@
 
   async function init() {
     hydrateShell();
+    const initialRoute=location.hash.match(/^#occupation\/(.+)$/);
+    if(initialRoute)openOccupation(decodeURIComponent(initialRoute[1]),{push:false});
+    const initialSkillRoute=location.hash.match(/^#skill\/(.+)$/);
+    if(initialSkillRoute)openSkill(decodeURIComponent(initialSkillRoute[1]),{push:false});
     const badge=$('#apiStatus');
     try{
       const [dashboardData,occupationData,skillData,trendsData,sourcesData,seriesData,geographyData,eurostatData,searchFilterData]=await Promise.all([
@@ -212,5 +305,12 @@
       $('#dataStatus').innerHTML='<i style="background:var(--coral)"></i>Aucune donnée affichée';
     }
   }
+  window.addEventListener('popstate',()=>{
+    const route=location.hash.match(/^#occupation\/(.+)$/);
+    if(route)openOccupation(decodeURIComponent(route[1]),{push:false});
+    else if(location.hash.match(/^#skill\/(.+)$/))openSkill(decodeURIComponent(location.hash.match(/^#skill\/(.+)$/)[1]),{push:false});
+    else if(document.querySelector('.view.active')?.id==='occupation-detail')showView(occupationReturnView);
+    else if(document.querySelector('.view.active')?.id==='skill-detail')showView(skillReturnView);
+  });
   init();
 })();
