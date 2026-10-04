@@ -7,6 +7,7 @@ from app.config import settings
 from app.db import get_db
 from app.eurostat_catalog import eurostat_catalog
 from app.services.dashboard import build_dashboard
+from app.services.data_quality import recompute_data_quality
 from app.services.ingestion import run_eurostat_catalog_import, run_import
 from app.services.occupation_mapping import sync_rome_esco_crosswalk
 from app.services.occupation_profile import build_occupation_profile
@@ -139,7 +140,35 @@ def recompute_trends(x_admin_key: str | None=Header(None), db: Session=Depends(g
 @router.get("/sources")
 def sources(db: Session=Depends(get_db)):
     rows=db.scalars(select(models.Source).order_by(models.Source.name)).all()
-    return [{"id":x.id,"slug":x.slug,"name":x.name,"type":x.source_type,"enabled":x.enabled,"requires_credentials":x.requires_credentials,"last_success_at":x.last_success_at} for x in rows]
+    quality_rows=db.scalars(select(models.DataQualityScore).order_by(models.DataQualityScore.period.desc())).all()
+    latest={}
+    for score in quality_rows: latest.setdefault((score.source_id,score.scope_key,score.metric),score)
+    by_source={}
+    for score in latest.values(): by_source.setdefault(score.source_id,[]).append(score.score)
+    return [{"id":x.id,"slug":x.slug,"name":x.name,"type":x.source_type,"enabled":x.enabled,
+             "requires_credentials":x.requires_credentials,"last_success_at":x.last_success_at,
+             "quality_score":round(sum(by_source[x.id])/len(by_source[x.id]),1) if x.id in by_source else None,
+             "quality_group_count":len(by_source.get(x.id,[])),"quality_is_official":False} for x in rows]
+
+@router.get("/quality/scores")
+def quality_scores(source: str | None=None, metric: str | None=None, limit: int=Query(100,ge=1,le=500), db: Session=Depends(get_db)):
+    stmt=select(models.DataQualityScore,models.Source.name,models.Source.slug,models.SourceDataset.external_id).join(
+        models.Source,models.Source.id==models.DataQualityScore.source_id).outerjoin(
+        models.SourceDataset,models.SourceDataset.id==models.DataQualityScore.dataset_id)
+    if source: stmt=stmt.where(models.Source.slug==source)
+    if metric: stmt=stmt.where(models.DataQualityScore.metric==metric)
+    rows=db.execute(stmt.order_by(models.DataQualityScore.period.desc(),models.DataQualityScore.score.desc()).limit(limit)).all()
+    return [{"id":row.id,"source_name":source_name,"source_slug":source_slug,"dataset":dataset,
+             "metric":row.metric,"period":row.period,"score":row.score,"sample_size":row.sample_size,
+             "components":{"source_quality":row.source_quality,"recency":row.recency,"coverage":row.coverage,
+                           "consistency":row.consistency,"cross_source_agreement":row.cross_source_agreement},
+             "diagnostics":row.diagnostics,"method_version":row.method_version,"calculated_at":row.calculated_at,
+             "is_official":False} for row,source_name,source_slug,dataset in rows]
+
+@router.post("/quality/recompute")
+def recompute_quality(x_admin_key: str | None=Header(None), db: Session=Depends(get_db)):
+    if not settings.admin_api_key or x_admin_key != settings.admin_api_key: raise HTTPException(403,"Clé d'administration requise")
+    return recompute_data_quality(db)
 
 @router.get("/sources/france_travail/coverage")
 def france_travail_coverage(db: Session=Depends(get_db)):

@@ -20,7 +20,10 @@ def _centered(value: float) -> float:
     return round(50 + max(-100, min(100, value)) / 2, 2)
 
 
-def _confidence(row: models.Observation) -> float:
+def _confidence(row: models.Observation, quality_scores: dict) -> float:
+    calculated = quality_scores.get((row.source_id, row.dataset_id, row.metric))
+    if calculated is not None:
+        return calculated
     metadata = row.metadata_json or {}
     value = metadata.get("source_confidence")
     if value is not None:
@@ -45,6 +48,9 @@ def _signal_rows(db: Session, skill: models.Skill) -> tuple[list[tuple[models.Ob
 
 def recompute_skill_trends(db: Session) -> dict:
     skills = db.scalars(select(models.Skill).order_by(models.Skill.id)).all()
+    quality_scores = {}
+    for row in db.scalars(select(models.DataQualityScore).order_by(models.DataQualityScore.period.desc())).all():
+        quality_scores.setdefault((row.source_id, row.dataset_id, row.metric), row.score)
     candidates = {}
     skipped = []
     all_geographies = set()
@@ -62,7 +68,7 @@ def recompute_skill_trends(db: Session) -> dict:
             series.append({"period": period, "value": sum(row.value * weight for row, weight in items),
                 "geographies": {row.geography_code for row, _ in items},
                 "sources": {row.source_id for row, _ in items},
-                "confidence": sum(_confidence(row) * weight for row, weight in items) / max(sum(weight for _, weight in items), 1e-9),
+                "confidence": sum(_confidence(row, quality_scores) * weight for row, weight in items) / max(sum(weight for _, weight in items), 1e-9),
                 "observations": len(items)})
         candidates[skill.id] = {"skill": skill, "signal": signal, "series": series}
 

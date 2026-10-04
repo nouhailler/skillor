@@ -135,6 +135,27 @@ class Observation(Base):
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     __table_args__ = (Index("ix_observation_lookup", "metric", "period", "geography_code"),)
 
+class DataQualityScore(Base):
+    __tablename__ = "data_quality_scores"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), index=True)
+    dataset_id: Mapped[str | None] = mapped_column(ForeignKey("source_datasets.id", ondelete="CASCADE"), index=True)
+    scope_key: Mapped[str] = mapped_column(String(80), default="__source__")
+    metric: Mapped[str] = mapped_column(String(80), index=True)
+    period: Mapped[date] = mapped_column(Date, index=True)
+    score: Mapped[float] = mapped_column(Float)
+    source_quality: Mapped[float] = mapped_column(Float)
+    recency: Mapped[float] = mapped_column(Float)
+    coverage: Mapped[float] = mapped_column(Float)
+    consistency: Mapped[float] = mapped_column(Float)
+    cross_source_agreement: Mapped[float] = mapped_column(Float)
+    sample_size: Mapped[int] = mapped_column(Integer)
+    diagnostics: Mapped[dict] = mapped_column(JSON, default=dict)
+    method_version: Mapped[str] = mapped_column(String(20), default="1.0-observed")
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    is_official: Mapped[bool] = mapped_column(Boolean, default=False)
+    __table_args__ = (UniqueConstraint("source_id", "scope_key", "metric", "period", "method_version"),)
+
 class TrendScore(Base):
     __tablename__ = "trend_scores"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)

@@ -9,6 +9,7 @@ from app.connectors import EscoConnector, EurostatConnector, FranceTravailConnec
 from app.eurostat_catalog import eurostat_profiles
 from app.services.occupation_mapping import resolve_occupation, resolve_skill
 from app.services.search import index_entity
+from app.services.data_quality import recompute_data_quality
 from app.services.trend_analytics import recompute_skill_trends
 
 CONNECTORS = {"esco": EscoConnector, "eurostat": EurostatConnector, "france_travail": FranceTravailConnector}
@@ -158,6 +159,7 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
                     "period": _period(row.get("period")), "geography_code": row.get("geography_code", "FR"),
                     "geography_name": row.get("geography_name") or ("France" if row.get("geography_code", "FR") == "FR" else row.get("geography_code", "FR")),
                     "natural_key": natural_key,
+                    "imported_at": datetime.now(timezone.utc),
                     "metadata_json": {
                         "dimensions": row.get("dimensions", {}), "is_official": True,
                         "dimension_labels": row.get("dimension_labels", {}), "status": row.get("status"),
@@ -181,16 +183,17 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
         source.last_success_at = datetime.now(timezone.utc)
         job.records_stored = stored; job.status = "success"; job.finished_at = datetime.now(timezone.utc)
         db.commit()
-        if slug == "france_travail":
-            try:
+        try:
+            recompute_data_quality(db)
+            if slug == "france_travail":
                 recompute_skill_trends(db)
-            except Exception as analytics_error:
-                db.rollback()
-                job = db.get(models.ImportJob, job.id)
-                parameters = dict(job.parameters or {})
-                parameters["trend_analytics_error"] = str(analytics_error)[:1000]
-                job.parameters = parameters
-                db.commit()
+        except Exception as analytics_error:
+            db.rollback()
+            job = db.get(models.ImportJob, job.id)
+            parameters = dict(job.parameters or {})
+            parameters["post_import_analytics_error"] = str(analytics_error)[:1000]
+            job.parameters = parameters
+            db.commit()
         db.refresh(job); return job
     except Exception as exc:
         db.rollback()

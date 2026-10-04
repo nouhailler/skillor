@@ -99,6 +99,21 @@ docker compose exec api python -m app.cli recompute-trends
 curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" http://localhost:8000/api/v1/trends/recompute
 ```
 
+Le ConfidenceScore est alimenté par une chaîne Data Quality exécutée après
+chaque import. Elle mesure, par source, dataset et métrique : la fiabilité de la
+source à partir du type, du taux de succès des imports et du statut officiel ;
+la récence du chargement ; la complétude des dimensions et rattachements ; la
+cohérence des valeurs, unités et clés naturelles ; enfin l'accord sur les mêmes
+points entre plusieurs sources. Sans recouvrement inter-sources, la composante
+prend une valeur neutre de 50 et le diagnostic l'indique explicitement. Tous les
+détails sont stockés dans `data_quality_scores`, restent non officiels et sont
+visibles dans la page Sources.
+
+```bash
+docker compose exec api python -m app.cli recompute-quality
+curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" http://localhost:8000/api/v1/quality/recompute
+```
+
 Eurostat est organisé en six profils configurables dans
 `backend/app/eurostat_catalog.py` : chômage, emploi, rémunérations, éducation,
 emploi par secteur NACE et chômage régional NUTS 2. Chaque profil définit son
@@ -158,6 +173,7 @@ docker compose run --rm api pytest
 - `GET /api/v1/trends/skills`
 - `POST /api/v1/trends/recompute` (clé d'administration)
 - `GET /api/v1/sources`
+- `GET /api/v1/quality/scores`
 - `GET /api/v1/catalog/occupations`
 - `GET /api/v1/catalog/skills`
 - `GET /api/v1/market/series`
@@ -168,6 +184,7 @@ docker compose run --rm api pytest
 - `POST /api/v1/imports/{source}` (clé d'administration)
 - `POST /api/v1/imports/france_travail/crosswalk` (clé d'administration)
 - `POST /api/v1/imports/eurostat/catalog` (clé d'administration)
+- `POST /api/v1/quality/recompute` (clé d'administration)
 
 Les valeurs calculées exposent toujours `is_official: false`, leur version de
 méthode et leurs composantes.
