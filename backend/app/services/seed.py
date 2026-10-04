@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app import models
 from app.services.scoring import TrendComponents, trend_score
+from app.services.search import rebuild_search_index
 
 OCCUPATIONS = [
     ("Data Scientist", "Analyse et modélise des données pour éclairer les décisions.", "Technologie", "18 420", 16.8, 74),
@@ -42,4 +43,4 @@ def seed_database(db: Session) -> None:
     links = [(0,0),(0,2),(1,4),(1,0),(2,1),(3,5),(4,2),(5,3),(5,5)]
     for oi, si in links:
         db.add(models.OccupationSkill(occupation_id=occupations[oi].id, skill_id=skills[si].id, source_id=sources["esco"].id, relationship_type="essential", confidence_score=.86))
-    db.commit()
+    rebuild_search_index(db)

@@ -1,6 +1,6 @@
 from datetime import date
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 from app import models, schemas
 from app.config import settings
@@ -9,6 +9,7 @@ from app.eurostat_catalog import eurostat_catalog
 from app.services.dashboard import build_dashboard
 from app.services.ingestion import run_eurostat_catalog_import, run_import
 from app.services.occupation_mapping import sync_rome_esco_crosswalk
+from app.services.search import ensure_search_index, search_entities, search_filters
 
 router = APIRouter(prefix="/api/v1")
 
@@ -21,12 +22,26 @@ def dashboard(db: Session = Depends(get_db)):
     return build_dashboard(db)
 
 @router.get("/search")
-def search(q: str = Query(min_length=2, max_length=100), limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):
-    term = f"%{q}%"
-    occs = db.scalars(select(models.Occupation).where(models.Occupation.canonical_name.ilike(term)).limit(limit)).all()
-    remaining = max(0, limit-len(occs))
-    skills = db.scalars(select(models.Skill).where(models.Skill.canonical_name.ilike(term)).limit(remaining)).all()
-    return [{"id":x.id,"name":x.canonical_name,"type":"occupation"} for x in occs]+[{"id":x.id,"name":x.canonical_name,"type":"skill"} for x in skills]
+def search(q: str = Query(min_length=1, max_length=100), entity_type: str | None=Query(None,pattern="^(occupation|skill)$"),
+           language: str | None=None, source: str | None=None, sector: str | None=None, skill_type: str | None=None,
+           fuzzy: bool=True, limit: int=Query(10,ge=1,le=50), db: Session=Depends(get_db)):
+    ensure_search_index(db)
+    return search_entities(db,q,entity_type=entity_type,language=language,source=source,sector=sector,
+                           skill_type=skill_type,fuzzy=fuzzy,limit=limit)
+
+@router.get("/search/suggestions")
+def search_suggestions(q: str=Query(min_length=1,max_length=100), entity_type: str | None=Query(None,pattern="^(occupation|skill)$"),
+                       language: str | None=None, source: str | None=None, sector: str | None=None,
+                       skill_type: str | None=None, limit: int=Query(8,ge=1,le=20),
+                       db: Session=Depends(get_db)):
+    ensure_search_index(db)
+    return search_entities(db,q,entity_type=entity_type,language=language,source=source,sector=sector,
+                           skill_type=skill_type,limit=limit,fuzzy=True)
+
+@router.get("/search/filters")
+def available_search_filters(db: Session=Depends(get_db)):
+    ensure_search_index(db)
+    return search_filters(db)
 
 @router.get("/catalog/occupations")
 def occupation_catalog(q: str | None=None, sector: str | None=None, offset: int=Query(0,ge=0),

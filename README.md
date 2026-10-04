@@ -57,6 +57,19 @@ compétences demandées et les salaires structurés lorsqu'ils sont fournis par 
 source. Les rapprochements non résolus sont conservés comme tels dans les
 métadonnées, sans attribution métier hasardeuse.
 
+La recherche repose sur une table d'index dédiée. Elle contient les libellés
+canoniques, synonymes ESCO, traductions, URI ESCO, codes ISCO et mappings
+externes ROME. Les appellations réellement observées dans les offres France
+Travail sont ajoutées comme alias traçables. Tout mapping externe dont le
+`source_system` vaut `onet` est automatiquement indexé de la même manière ; le
+dépôt ne télécharge toutefois pas encore le référentiel O*NET lui-même.
+PostgreSQL utilise l'extension `pg_trgm` et un index GIN pour la tolérance aux
+fautes. L'index est entretenu pendant les imports et peut être reconstruit avec :
+
+```bash
+docker compose exec api python -m app.cli reindex-search
+```
+
 Eurostat est organisé en six profils configurables dans
 `backend/app/eurostat_catalog.py` : chômage, emploi, rémunérations, éducation,
 emploi par secteur NACE et chômage régional NUTS 2. Chaque profil définit son
@@ -88,7 +101,9 @@ docker compose run --rm api pytest
 ## API principale
 
 - `GET /api/v1/dashboard`
-- `GET /api/v1/search?q=python`
+- `GET /api/v1/search?q=pythn&entity_type=skill&language=fr&source=esco`
+- `GET /api/v1/search/suggestions?q=data`
+- `GET /api/v1/search/filters`
 - `GET /api/v1/occupations`
 - `GET /api/v1/occupations/{id}`
 - `GET /api/v1/skills`

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app import models
 from app.config import settings
+from app.services.search import index_entity
 
 RELATION_CONFIDENCE = {
     "skos:exactMatch": 1.0,
@@ -65,6 +66,7 @@ async def sync_rome_esco_crosswalk(db: Session, url: str | None = None) -> dict:
         select(models.ExternalOccupationMapping).where(models.ExternalOccupationMapping.source_system == "rome_appellation_v3")
     ).all()}
     stored = skipped = 0
+    affected_occupations = set()
     for row in rows:
         occupation = occupations.get(row["esco_uri"])
         if not occupation:
@@ -81,6 +83,10 @@ async def sync_rome_esco_crosswalk(db: Session, url: str | None = None) -> dict:
                                                         external_code=row["external_code"], **fields)
             db.add(existing); existing_mappings[(occupation.id, row["external_code"])] = existing
         stored += 1
+        affected_occupations.add(occupation.id)
+    db.flush()
+    for occupation_id in affected_occupations:
+        index_entity(db, "occupation", db.get(models.Occupation, occupation_id))
     db.commit()
     return {"rows": len(rows), "stored": stored, "skipped_missing_esco": skipped,
             "url": crosswalk_url, "raw_path": str(raw_path)}

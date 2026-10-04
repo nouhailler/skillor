@@ -8,6 +8,7 @@ from app.config import settings
 from app.connectors import EscoConnector, EurostatConnector, FranceTravailConnector
 from app.eurostat_catalog import eurostat_profiles
 from app.services.occupation_mapping import resolve_occupation, resolve_skill
+from app.services.search import index_entity
 
 CONNECTORS = {"esco": EscoConnector, "eurostat": EurostatConnector, "france_travail": FranceTravailConnector}
 
@@ -84,6 +85,7 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
                     db.add(existing)
                 db.flush()
                 entities_by_uri[row["esco_uri"]] = existing
+                index_entity(db, row["entity_type"], existing)
                 stored += 1
             for relation in normalized["relations"]:
                 occupation = entities_by_uri.get(relation["occupation_uri"]) or db.scalar(select(models.Occupation).where(models.Occupation.esco_uri == relation["occupation_uri"]))
@@ -110,6 +112,8 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
             dataset.metadata_json = {"profile": payload.get("_skillor_profile"), "family": payload.get("_skillor_family"),
                                      "geography_level": payload.get("_skillor_geography_level"),
                                      "filters": payload.get("_skillor_filters", {})}
+            affected_occupations = set()
+            affected_skills = set()
             for row in normalized:
                 occupation_id = skill_id = None
                 resolution = None
@@ -118,6 +122,31 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
                     occupation_id = resolution.occupation.id if resolution.occupation else None
                     skill = resolve_skill(db, row.get("skill_label"))
                     skill_id = skill.id if skill else None
+                    if resolution.occupation:
+                        affected_occupations.add(resolution.occupation.id)
+                        external_code = row.get("occupation_external_code")
+                        external_scheme = row.get("occupation_external_scheme") or "rome_v4"
+                        if external_code:
+                            mapping = db.scalar(select(models.ExternalOccupationMapping).where(
+                                models.ExternalOccupationMapping.occupation_id == resolution.occupation.id,
+                                models.ExternalOccupationMapping.source_system == external_scheme,
+                                models.ExternalOccupationMapping.external_code == str(external_code),
+                            ))
+                            if not mapping:
+                                mapping = models.ExternalOccupationMapping(
+                                    occupation_id=resolution.occupation.id, source_system=external_scheme,
+                                    external_code=str(external_code), external_label=row.get("occupation_label"),
+                                    mapping_relation="observedMatch", mapping_method=resolution.method,
+                                    confidence_score=resolution.confidence, metadata_json={},
+                                )
+                                db.add(mapping)
+                            metadata = dict(mapping.metadata_json or {})
+                            aliases = list(metadata.get("observed_aliases", []))
+                            for label in (row.get("occupation_label"), row.get("occupation_appellation_label")):
+                                if label and label not in aliases: aliases.append(label)
+                            metadata["observed_aliases"] = aliases
+                            mapping.metadata_json = metadata
+                    if skill: affected_skills.add(skill.id)
                     if resolution.occupation and row.get("sector_name") and not resolution.occupation.sector:
                         resolution.occupation.sector = row["sector_name"]
                 natural_key = _observation_key(slug, dataset_code, row)
@@ -143,6 +172,11 @@ async def run_import(db: Session, slug: str, **parameters) -> models.ImportJob:
                 else:
                     db.add(models.Observation(**fields))
                 stored += 1
+            db.flush()
+            for occupation_id in affected_occupations:
+                index_entity(db, "occupation", db.get(models.Occupation, occupation_id))
+            for skill_id in affected_skills:
+                index_entity(db, "skill", db.get(models.Skill, skill_id))
         source.last_success_at = datetime.now(timezone.utc)
         job.records_stored = stored; job.status = "success"; job.finished_at = datetime.now(timezone.utc)
         db.commit(); db.refresh(job); return job

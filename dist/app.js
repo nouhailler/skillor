@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const API_URL = (window.SKILLOR_API_URL || '').replace(/\/$/, '');
-  const state = {dashboard:null, occupations:[], skills:[], trends:[], sources:[], geographies:null, eurostat:[], series:[]};
+  const state = {dashboard:null, occupations:[], skills:[], trends:[], sources:[], geographies:null, eurostat:[], series:[], searchFilters:{languages:[],sources:[]}};
   const $ = selector => document.querySelector(selector);
   const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
   const formatNumber = value => value == null ? '—' : new Intl.NumberFormat('fr-FR',{maximumFractionDigits:1}).format(value);
@@ -161,7 +161,22 @@
     $('#entityModal').onclick=event=>{if(event.target.id==='entityModal'||event.target.closest('.modal-close'))$('#entityModal').classList.remove('open')};
     $('#download').onclick=downloadCSV; $('#quadExport').onclick=downloadCSV;
     const global=$('#globalSearch'),results=$('#searchResults');
-    global.oninput=()=>{clearTimeout(globalTimer);const query=global.value.trim();if(query.length<2){results.classList.remove('show');return}globalTimer=setTimeout(async()=>{try{const rows=await apiGet(`/api/v1/search?q=${encodeURIComponent(query)}&limit=8`);results.innerHTML=rows.length?rows.map(item=>`<button class="search-item" style="width:100%;border:0;background:transparent;color:var(--text)" data-search-id="${escapeHtml(item.id)}" data-search-type="${escapeHtml(item.type)}"><span>${escapeHtml(item.name)}</span><span class="tag">${item.type==='occupation'?'Métier':'Compétence'}</span></button>`).join(''):'<div class="search-item">Aucun résultat</div>';results.classList.add('show');results.querySelectorAll('[data-search-id]').forEach(button=>button.onclick=()=>{results.classList.remove('show');global.value='';button.dataset.searchType==='occupation'?openOccupation(button.dataset.searchId):openSkill(button.dataset.searchId)})}catch(error){results.innerHTML='<div class="search-item">Recherche indisponible</div>';results.classList.add('show')}},250)};
+    const selected={entity_type:'',language:'',source:''};
+    const options=(values,current,allLabel)=>`<option value="">${allLabel}</option>`+values.map(value=>`<option value="${escapeHtml(value)}" ${value===current?'selected':''}>${escapeHtml(value)}</option>`).join('');
+    const runGlobalSearch=async()=>{
+      const query=global.value.trim();if(!query){results.classList.remove('show');return}
+      const params=new URLSearchParams({q:query,limit:'8'});Object.entries(selected).forEach(([key,value])=>{if(value)params.set(key,value)});
+      try{
+        const rows=await apiGet(`/api/v1/search/suggestions?${params}`);
+        const filters=`<div class="search-filter-row"><select aria-label="Type de résultat" data-search-filter="entity_type"><option value="">Métiers + compétences</option><option value="occupation" ${selected.entity_type==='occupation'?'selected':''}>Métiers</option><option value="skill" ${selected.entity_type==='skill'?'selected':''}>Compétences</option></select><select aria-label="Langue" data-search-filter="language">${options(state.searchFilters.languages||[],selected.language,'Toutes les langues')}</select><select aria-label="Source" data-search-filter="source">${options(state.searchFilters.sources||[],selected.source,'Toutes les sources')}</select></div>`;
+        const items=rows.length?rows.map(item=>`<button class="search-item" style="width:100%;border:0;background:transparent;color:var(--text)" data-search-id="${escapeHtml(item.id)}" data-search-type="${escapeHtml(item.type)}"><span><b>${escapeHtml(item.name)}</b><small>${item.matched_term!==item.name?`via « ${escapeHtml(item.matched_term)} » · `:''}${escapeHtml(item.matched_source)}${item.matched_language?` · ${escapeHtml(item.matched_language)}`:''}</small></span><span><span class="tag">${item.type==='occupation'?'Métier':'Compétence'}</span><small class="search-score">${Math.round(item.score*100)} %</small></span></button>`).join(''):'<div class="search-item"><span>Aucun résultat, même avec la tolérance aux fautes.</span></div>';
+        results.innerHTML=filters+items;results.classList.add('show');
+        results.querySelectorAll('[data-search-filter]').forEach(select=>select.onchange=()=>{selected[select.dataset.searchFilter]=select.value;runGlobalSearch()});
+        results.querySelectorAll('[data-search-id]').forEach(button=>button.onclick=()=>{results.classList.remove('show');global.value='';button.dataset.searchType==='occupation'?openOccupation(button.dataset.searchId):openSkill(button.dataset.searchId)});
+      }catch(error){results.innerHTML='<div class="search-item">Recherche indisponible</div>';results.classList.add('show')}
+    };
+    global.oninput=()=>{clearTimeout(globalTimer);globalTimer=setTimeout(runGlobalSearch,180)};
+    document.addEventListener('click',event=>{if(!event.target.closest('.search'))results.classList.remove('show')});
   }
 
   async function loadOccupations(query='',sector='') {
@@ -183,11 +198,11 @@
     hydrateShell();
     const badge=$('#apiStatus');
     try{
-      const [dashboardData,occupationData,skillData,trendsData,sourcesData,seriesData,geographyData,eurostatData]=await Promise.all([
+      const [dashboardData,occupationData,skillData,trendsData,sourcesData,seriesData,geographyData,eurostatData,searchFilterData]=await Promise.all([
         apiGet('/api/v1/dashboard'),apiGet('/api/v1/catalog/occupations?limit=60'),apiGet('/api/v1/catalog/skills?limit=60'),
         apiGet('/api/v1/trends/skills?limit=30'),apiGet('/api/v1/sources'),apiGet('/api/v1/market/series?metric=job_offers'),
-        apiGet('/api/v1/market/geographies?metric=job_offers&limit=60'),apiGet('/api/v1/eurostat/datasets')]);
-      Object.assign(state,{dashboard:dashboardData,occupations:occupationData,skills:skillData,trends:trendsData,sources:sourcesData,series:seriesData,geographies:geographyData,eurostat:eurostatData});
+        apiGet('/api/v1/market/geographies?metric=job_offers&limit=60'),apiGet('/api/v1/eurostat/datasets'),apiGet('/api/v1/search/filters')]);
+      Object.assign(state,{dashboard:dashboardData,occupations:occupationData,skills:skillData,trends:trendsData,sources:sourcesData,series:seriesData,geographies:geographyData,eurostat:eurostatData,searchFilters:searchFilterData});
       occupations=occupationData;skills=skillData;
       badge.innerHTML='<i style="background:var(--mint)"></i>API connectée';
       renderOccupations();renderSkills();renderTrends();renderCompareSelectors();renderGeographies();renderSources();populateSectors();renderDashboard();

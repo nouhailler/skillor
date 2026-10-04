@@ -5,6 +5,8 @@ def test_openapi_exposes_mvp_routes():
     assert "/api/v1/health" in paths
     assert "/api/v1/dashboard" in paths
     assert "/api/v1/search" in paths
+    assert "/api/v1/search/suggestions" in paths
+    assert "/api/v1/search/filters" in paths
     assert "/api/v1/catalog/occupations" in paths
     assert "/api/v1/catalog/skills" in paths
     assert "/api/v1/market/series" in paths

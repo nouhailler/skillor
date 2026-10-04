@@ -76,6 +76,22 @@ class ExternalOccupationMapping(Base):
     occupation: Mapped[Occupation] = relationship(back_populates="external_mappings")
     __table_args__ = (UniqueConstraint("occupation_id", "source_system", "external_code"),)
 
+class SearchTerm(Base):
+    __tablename__ = "search_terms"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    entity_type: Mapped[str] = mapped_column(String(30), index=True)
+    entity_id: Mapped[str] = mapped_column(String(36), index=True)
+    term: Mapped[str] = mapped_column(String(500))
+    normalized_term: Mapped[str] = mapped_column(String(500), index=True)
+    language: Mapped[str | None] = mapped_column(String(12), index=True)
+    source: Mapped[str] = mapped_column(String(80), index=True)
+    term_type: Mapped[str] = mapped_column(String(40), index=True)
+    identifier: Mapped[str | None] = mapped_column(String(500), index=True)
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id", "normalized_term", "language", "source", "term_type", name="uq_search_term_identity"),
+        Index("ix_search_terms_entity", "entity_type", "entity_id"),
+    )
+
 class Skill(Base):
     __tablename__ = "skills"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)

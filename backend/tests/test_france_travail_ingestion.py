@@ -7,6 +7,7 @@ from app import models
 from app.connectors.france_travail import FranceTravailConnector
 from app.db import Base
 from app.services import ingestion
+from app.services.search import search_entities
 
 class FakeFranceTravailConnector:
     async def fetch(self, **_):
@@ -43,3 +44,5 @@ def test_france_travail_import_links_occupation_and_skill_and_is_idempotent(tmp_
         skill_observation=next(row for row in observations if row.metric == "skill_offer_mentions")
         assert skill_observation.skill_id == skill.id
         assert db.scalar(select(func.count(models.Observation.id))) == 2
+        alias_result=search_entities(db,"Développeur web",source="france_travail")
+        assert alias_result[0]["id"] == occupation.id
