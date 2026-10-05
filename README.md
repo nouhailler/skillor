@@ -132,6 +132,15 @@ Le dépôt n'embarque aucune valeur WEF recopiée ni projection de démonstratio
 L'interface reste vide tant qu'une édition autorisée et sourcée n'a pas été
 importée.
 
+Le comparateur métiers est calculé par `GET /api/v1/compare/occupations?ids=…`
+pour deux à cinq identifiants distincts. Il renvoie compétences et connaissances
+ESCO, offres des douze dernières périodes mensuelles, évolution entre la
+première et la dernière période, salaire sans conversion d'unité, tension,
+secteurs, régions, pays, tendances, séries d'offres et chevauchements. Le
+frontend construit depuis cette réponse un radar normalisé, des barres, une
+matrice, des courbes et les indices de Jaccard par paire. La normalisation du
+radar est relative à la sélection et signalée comme calcul interne.
+
 Eurostat est organisé en six profils configurables dans
 `backend/app/eurostat_catalog.py` : chômage, emploi, rémunérations, éducation,
 emploi par secteur NACE et chômage régional NUTS 2. Chaque profil définit son
@@ -186,6 +195,7 @@ docker compose run --rm api pytest
 - `GET /api/v1/search/filters`
 - `GET /api/v1/occupations`
 - `GET /api/v1/occupations/{id}`
+- `GET /api/v1/compare/occupations?ids=id1,id2`
 - `GET /api/v1/skills`
 - `GET /api/v1/skills/{id}`
 - `GET /api/v1/trends/skills`
