@@ -14,6 +14,7 @@ from app.services.occupation_mapping import sync_rome_esco_crosswalk
 from app.services.occupation_profile import build_occupation_profile
 from app.services.occupation_compare import compare_occupations
 from app.services.skill_profile import build_skill_profile
+from app.services.skill_compare import compare_skills
 from app.services.trend_analytics import recompute_skill_trends
 from app.services.search import ensure_search_index, search_entities, search_filters
 
@@ -115,6 +116,12 @@ def occupation_detail(occupation_id: str, db: Session=Depends(get_db)):
 @router.get("/compare/occupations")
 def occupation_comparison(ids: str=Query(min_length=3), db: Session=Depends(get_db)):
     try: return compare_occupations(db,[item.strip() for item in ids.split(",") if item.strip()])
+    except ValueError as exc: raise HTTPException(422,str(exc)) from exc
+    except LookupError as exc: raise HTTPException(404,str(exc)) from exc
+
+@router.get("/compare/skills")
+def skill_comparison(ids: str=Query(min_length=3), db: Session=Depends(get_db)):
+    try: return compare_skills(db,[item.strip() for item in ids.split(",") if item.strip()])
     except ValueError as exc: raise HTTPException(422,str(exc)) from exc
     except LookupError as exc: raise HTTPException(404,str(exc)) from exc
 

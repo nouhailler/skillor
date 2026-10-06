@@ -141,6 +141,15 @@ frontend construit depuis cette réponse un radar normalisé, des barres, une
 matrice, des courbes et les indices de Jaccard par paire. La normalisation du
 radar est relative à la sélection et signalée comme calcul interne.
 
+Le même écran propose un comparateur de compétences alimenté par
+`GET /api/v1/compare/skills?ids=…`, également limité à deux à cinq éléments.
+Il rapproche les métiers et secteurs liés, la demande, les salaires, la tension,
+la couverture géographique, le TrendScore et la dernière projection prospective
+disponible. La demande utilise en priorité les mentions directes d'une compétence
+dans les offres ; en leur absence, les offres des métiers liés sont exposées
+comme proxy explicite. L'API fournit aussi les métiers communs et les indices de
+Jaccard par paire, sans présenter les indicateurs calculés comme officiels.
+
 Eurostat est organisé en six profils configurables dans
 `backend/app/eurostat_catalog.py` : chômage, emploi, rémunérations, éducation,
 emploi par secteur NACE et chômage régional NUTS 2. Chaque profil définit son
@@ -196,6 +205,7 @@ docker compose run --rm api pytest
 - `GET /api/v1/occupations`
 - `GET /api/v1/occupations/{id}`
 - `GET /api/v1/compare/occupations?ids=id1,id2`
+- `GET /api/v1/compare/skills?ids=id1,id2`
 - `GET /api/v1/skills`
 - `GET /api/v1/skills/{id}`
 - `GET /api/v1/trends/skills`
