@@ -190,6 +190,17 @@ fraîcheur de chaque source. Les bornes salariales peuvent produire un point
 central interne, signalé par la méthode `range_midpoint` ; aucune conversion
 entre salaire horaire, mensuel et annuel n'est effectuée.
 
+La carte France est alimentée par `GET /api/v1/market/map`. Elle agrège les
+observations SQLite par région administrative à partir des codes NUTS, région,
+département ou commune et propose quatre lectures : demande, évolution sur les
+douze dernières périodes, tension et salaire. Chaque lecture peut être filtrée
+par métier ou compétence ; une compétence utilise ses mentions directes quand
+elles sont géolocalisées, sinon les métiers liés comme proxy explicite. Les
+info-bulles, la légende, la période, la couverture et les sources sont calculées
+depuis la réponse API. La géométrie locale provient du référentiel officiel
+[Eurostat/GISCO NUTS 2024](https://gisco-services.ec.europa.eu/distribution/v2/nuts/)
+en EPSG:4326. PostGIS n'est donc pas requis pour ce périmètre national statique.
+
 ## Tests
 
 ```bash
@@ -217,6 +228,7 @@ docker compose run --rm api pytest
 - `GET /api/v1/catalog/skills`
 - `GET /api/v1/market/series`
 - `GET /api/v1/market/geographies`
+- `GET /api/v1/market/map?indicator=demand&occupation_id=...&period=...`
 - `GET /api/v1/sources/france_travail/coverage`
 - `GET /api/v1/eurostat/datasets`
 - `GET /api/v1/eurostat/indicators`

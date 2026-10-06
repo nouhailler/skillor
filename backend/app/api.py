@@ -9,6 +9,7 @@ from app.eurostat_catalog import eurostat_catalog
 from app.services.dashboard import build_dashboard
 from app.services.data_quality import recompute_data_quality
 from app.services.future_of_jobs import future_of_jobs, import_wef_edition
+from app.services.geographic_map import build_geographic_map
 from app.services.ingestion import run_eurostat_catalog_import, run_import
 from app.services.occupation_mapping import sync_rome_esco_crosswalk
 from app.services.occupation_profile import build_occupation_profile
@@ -99,6 +100,14 @@ def market_geographies(metric: str="job_offers", limit: int=Query(30,ge=1,le=200
     if latest is None: return {"metric":metric,"period":None,"items":[]}
     rows=db.execute(select(models.Observation.geography_code,models.Observation.geography_name,func.sum(models.Observation.value),models.Observation.unit).where(models.Observation.metric==metric,models.Observation.period==latest).group_by(models.Observation.geography_code,models.Observation.geography_name,models.Observation.unit).order_by(func.sum(models.Observation.value).desc()).limit(limit)).all()
     return {"metric":metric,"period":latest,"items":[{"code":code,"name":name,"value":value,"unit":unit} for code,name,value,unit in rows]}
+
+@router.get("/market/map")
+def market_map(indicator: str=Query("demand",pattern="^(demand|evolution|tension|salary)$"),
+               occupation_id: str | None=None, skill_id: str | None=None, period: date | None=None,
+               db: Session=Depends(get_db)):
+    try: return build_geographic_map(db,indicator,occupation_id,skill_id,period)
+    except ValueError as exc: raise HTTPException(422,str(exc)) from exc
+    except LookupError as exc: raise HTTPException(404,str(exc)) from exc
 
 @router.get("/occupations", response_model=list[schemas.OccupationOut])
 def occupations(q: str | None=None, sector: str | None=None, offset: int=Query(0,ge=0), limit: int=Query(30,ge=1,le=100), db: Session=Depends(get_db)):

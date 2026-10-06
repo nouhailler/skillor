@@ -11,6 +11,7 @@ def test_openapi_exposes_mvp_routes():
     assert "/api/v1/catalog/skills" in paths
     assert "/api/v1/market/series" in paths
     assert "/api/v1/market/geographies" in paths
+    assert "/api/v1/market/map" in paths
     assert "/api/v1/occupations/{occupation_id}" in paths
     assert "/api/v1/imports/{source}" in paths
     assert "/api/v1/sources/france_travail/coverage" in paths
