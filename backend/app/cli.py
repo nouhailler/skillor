@@ -1,5 +1,6 @@
 import argparse, asyncio
-from app.db import Base, SessionLocal, engine
+from sqlalchemy import inspect, text
+from app.db import SessionLocal, engine
 from app.services.ingestion import run_eurostat_catalog_import, run_import
 from app.services.occupation_mapping import sync_rome_esco_crosswalk
 from app.services.seed import seed_database
@@ -19,7 +20,11 @@ def main():
     sync=sub.add_parser("sync"); sync.add_argument("source",choices=["esco","eurostat","france_travail"]); sync.add_argument("--query",default="data"); sync.add_argument("--limit",type=int,default=50); sync.add_argument("--max-relation-skills",type=int,default=None); sync.add_argument("--dataset",default=None); sync.add_argument("--profile",default=None); sync.add_argument("--territory",default="FR"); sync.add_argument("--geography",default="FR"); sync.add_argument("--since",type=int,default=2021); sync.add_argument("--rome-code",default=None); sync.add_argument("--endpoint",default="indicateurs")
     eurostat=sub.add_parser("sync-eurostat"); eurostat.add_argument("--profiles",default="all"); eurostat.add_argument("--geography",default="FR"); eurostat.add_argument("--since",type=int,default=2021)
     crosswalk=sub.add_parser("sync-rome-esco"); crosswalk.add_argument("--url",default=None)
-    args=parser.parse_args(); Base.metadata.create_all(bind=engine)
+    args=parser.parse_args()
+    inspector=inspect(engine)
+    with engine.connect() as connection:
+        revision=connection.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar() if inspector.has_table("alembic_version") else None
+    if not revision: raise SystemExit("Schéma non migré. Exécutez d'abord : alembic upgrade head")
     with SessionLocal() as db:
         if args.command=="seed": seed_database(db); print("Jeu initial chargé")
         elif args.command=="reindex-search": print(f"Index de recherche: {rebuild_search_index(db)} termes")

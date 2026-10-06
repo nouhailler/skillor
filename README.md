@@ -38,6 +38,39 @@ France Travail nécessite un client OAuth ; ajoutez `FRANCE_TRAVAIL_CLIENT_ID` e
 Pour les tests visuels locaux uniquement, un jeu synthétique reste disponible
 sur demande avec `docker compose exec api python -m app.cli seed`.
 
+### Démarrage sans Docker
+
+Depuis la racine du dépôt :
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+cp .env.example backend/.env
+cd backend
+../.venv/bin/alembic upgrade head
+../.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Dans un second terminal, depuis la racine du dépôt :
+
+```bash
+python3 -m http.server 8080 --directory dist
+```
+
+Ouvrez ensuite `http://127.0.0.1:8080`. Pour charger le jeu synthétique de
+test, exécutez après la migration :
+
+```bash
+cd backend
+../.venv/bin/python -m app.cli seed
+```
+
+Les anciennes bases SQLite créées par `metadata.create_all` avant l'introduction
+d'Alembic sont détectées lors de `alembic upgrade head`. Le schéma historique
+est complété et marqué à la révision de compatibilité sans supprimer ses lignes.
+Faites néanmoins une copie du fichier avant toute migration d'une base contenant
+des imports importants.
+
 ## Synchronisation
 
 ```bash

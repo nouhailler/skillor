@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     database_url: str = "sqlite:///./skillor.sqlite3"
     app_cors_origins: str = "http://localhost:8080,http://localhost:4173,http://127.0.0.1:8080,http://127.0.0.1:4173"
-    auto_create_schema: bool = True
+    auto_create_schema: bool = False
     seed_on_start: bool = False
     raw_data_dir: str = "./data/raw"
     admin_api_key: str = "change-me"
